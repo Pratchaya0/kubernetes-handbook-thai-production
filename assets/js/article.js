@@ -19,6 +19,7 @@
     initCounters();
     initToc();
     initCodeCopy();
+    initExpandable();
   });
 
   // ---------- top scroll-progress bar ----------
@@ -173,5 +174,55 @@
       btn.textContent = 'copied!';
       setTimeout(function () { btn.textContent = old; }, 1400);
     }
+  }
+
+  // ---------- expand button + modal: view diagrams/tables at full desktop layout on mobile ----------
+  function initExpandable() {
+    // wrap any bare chapter table that isn't already inside .table-scroll
+    document.querySelectorAll('.chapter table').forEach(function (table) {
+      if (table.closest('.table-scroll')) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'table-scroll';
+      table.parentNode.insertBefore(wrap, table);
+      wrap.appendChild(table);
+    });
+
+    var targets = Array.prototype.slice.call(document.querySelectorAll('figure.diagram, .table-scroll'));
+    if (!targets.length) return;
+
+    var modal = document.createElement('div');
+    modal.className = 'expand-modal';
+    modal.innerHTML = '<button class="expand-close" aria-label="ปิด" type="button">✕</button><div class="expand-panel"></div>';
+    document.body.appendChild(modal);
+    var panel = modal.querySelector('.expand-panel');
+    var closeBtn = modal.querySelector('.expand-close');
+
+    function openModal(target) {
+      panel.innerHTML = '';
+      panel.appendChild(target.cloneNode(true));
+      modal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeModal() {
+      modal.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+    });
+
+    targets.forEach(function (el) {
+      var btn = document.createElement('button');
+      btn.className = 'expand-btn';
+      btn.type = 'button';
+      btn.setAttribute('aria-label', 'ขยายดูแนวนอน');
+      btn.textContent = '⤢';
+      btn.addEventListener('click', function () { openModal(el); });
+      el.appendChild(btn);
+    });
   }
 })();

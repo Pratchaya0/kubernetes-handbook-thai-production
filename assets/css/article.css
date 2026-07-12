@@ -108,11 +108,17 @@ article.content{min-width:0;padding-bottom:60px}
 .chapter p code,.chapter li code,.toc a code,.speech code{background:var(--surface-2);border:1px solid var(--border);
   border-radius:5px;padding:1px 6px;font-size:14.5px;color:var(--accent-2)}
 
-/* tables */
-.chapter table{width:100%;border-collapse:collapse;margin:18px 0 26px;font-size:14.5px}
-.chapter th,.chapter td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top}
-.chapter th{background:var(--surface-2);font-family:var(--font-hand);font-weight:700}
-.chapter tr:nth-child(even) td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
+/* tables — .table-scroll wraps every table at runtime via article.js so wide tables
+   pan horizontally instead of overflowing the page on mobile (see initExpandable).
+   Deliberately NOT scoped under .chapter: the expand modal clones table content
+   outside .chapter entirely, and a .chapter-scoped rule would silently stop
+   applying there (this bit us once — the modal table rendered unstyled/cramped). */
+.table-scroll{position:relative;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:18px 0 26px}
+.table-scroll table{width:auto;min-width:100%;margin:0}
+table{width:100%;border-collapse:collapse;margin:18px 0 26px;font-size:14.5px}
+th,td{border:1px solid var(--border);padding:9px 12px;text-align:left;vertical-align:top}
+th{background:var(--surface-2);font-family:var(--font-hand);font-weight:700}
+tr:nth-child(even) td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
 
 /* grids/cards reused from doodle.css contexts */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:24px 0}

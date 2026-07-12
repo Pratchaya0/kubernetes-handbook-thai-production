@@ -30,15 +30,16 @@
 }
 .tag.accent{background:color-mix(in srgb, var(--accent) 16%, var(--surface));border-color:var(--accent);color:var(--accent)}
 
-/* marker highlight behind a word/phrase */
-.mark{position:relative;white-space:nowrap;padding:0 .15em}
-.mark::before{
-  content:"";position:absolute;left:-3%;right:-3%;bottom:4%;top:38%;z-index:-1;
-  background:color-mix(in srgb, var(--accent-3) 45%, transparent);
-  border-radius:40% 60% 45% 55%/60% 40% 60% 40%;transform:rotate(-1deg);
+/* marker highlight behind a word/phrase — box-decoration-break:clone lets this
+   wrap across multiple lines (each fragment gets its own highlight box) instead
+   of forcing white-space:nowrap, which overflowed on mobile for long marks. */
+.mark{
+  background:linear-gradient(color-mix(in srgb, var(--accent-3) 45%, transparent), color-mix(in srgb, var(--accent-3) 45%, transparent));
+  background-repeat:no-repeat;background-size:100% 62%;background-position:0 88%;
+  padding:0 .15em;-webkit-box-decoration-break:clone;box-decoration-break:clone;
 }
-.mark.blue::before{background:color-mix(in srgb, var(--accent-2) 40%, transparent)}
-.mark.green::before{background:color-mix(in srgb, var(--accent) 35%, transparent)}
+.mark.blue{background-image:linear-gradient(color-mix(in srgb, var(--accent-2) 40%, transparent), color-mix(in srgb, var(--accent-2) 40%, transparent))}
+.mark.green{background-image:linear-gradient(color-mix(in srgb, var(--accent) 35%, transparent), color-mix(in srgb, var(--accent) 35%, transparent))}
 
 /* circle-the-word doodle */
 .circle-word{position:relative;display:inline-block;padding:0 .15em}
@@ -98,3 +99,38 @@
 }
 .callout.warn{border-left-color:var(--bad)}
 .callout .callout-title{font-family:var(--font-hand);font-weight:700;color:var(--text-1);display:flex;gap:8px;align-items:center;margin-bottom:6px}
+
+/* ============ MOBILE: flow-row stacks vertically, arrows point down instead of right ============ */
+@media (max-width:640px){
+  .flow-row{flex-direction:column}
+  .flow-row .node{width:100%}
+  .flow-row svg.doodle-arrow{width:34px;height:52px;align-self:center;transform:rotate(90deg)}
+}
+
+/* ============ EXPAND BUTTON + MODAL — mobile-only, view diagrams/tables at full desktop layout ============ */
+figure.diagram{position:relative}
+.expand-btn{
+  display:none;position:absolute;top:10px;right:10px;z-index:5;
+  width:34px;height:34px;border-radius:50%;border:2px solid var(--text-1);
+  background:var(--surface);color:var(--text-1);font-size:15px;line-height:1;
+  align-items:center;justify-content:center;box-shadow:2px 3px 0 0 color-mix(in srgb, var(--text-1) 14%, transparent);
+  cursor:pointer;
+}
+@media (max-width:760px){.expand-btn{display:flex}}
+
+.expand-modal{position:fixed;inset:0;z-index:80;display:none;background:rgba(20,18,14,.6)}
+.expand-modal.open{display:flex;flex-direction:column}
+.expand-modal .expand-close{
+  align-self:flex-end;flex:none;margin:14px 14px 0 0;width:38px;height:38px;border-radius:50%;
+  border:2px solid var(--text-1);background:var(--surface);color:var(--text-1);font-size:18px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+.expand-modal .expand-panel{
+  flex:1 1 auto;min-height:0;margin:12px 14px 24px;background:var(--surface);border-radius:var(--radius);
+  padding:20px;overflow:auto;-webkit-overflow-scrolling:touch;box-shadow:var(--shadow-lg);
+}
+.expand-modal .expand-panel figure.diagram{margin:0}
+.expand-modal .flow-row{flex-direction:row;flex-wrap:nowrap;width:max-content}
+.expand-modal .flow-row .node{width:auto}
+.expand-modal .flow-row svg.doodle-arrow{width:52px;height:34px;transform:none}
+.expand-modal .table-scroll table{width:max-content;min-width:100%}
