@@ -1,0 +1,36 @@
+/* tokens.css — color/type/spacing system for the article.
+   Palette + shadow/radius scale adapted from html-ppt's base.css + minimal-white
+   theme (github.com/Pratchaya0/html-ppt, MIT license, credit kept below). */
+:root{
+  --bg:#fffdf9;
+  --bg-soft:#faf6ee;
+  --surface:#ffffff;
+  --surface-2:#f5f1e8;
+  --border:rgba(30,26,18,.10);
+  --border-strong:rgba(30,26,18,.22);
+  --text-1:#1c1a15;
+  --text-2:#5b5648;
+  --text-3:#948d7a;
+  --accent:#326ce8;
+  --accent-2:#0f8a72;
+  --accent-3:#d9770a;
+  --good:#0f8a72;
+  --warn:#d9770a;
+  --bad:#c1403a;
+  --grad:linear-gradient(135deg,#326ce8,#0f8a72 55%,#d9770a);
+  --grad-soft:linear-gradient(135deg,#eaf0ff,#eafbf5 55%,#fff6e8);
+  --radius:16px;
+  --radius-sm:10px;
+  --radius-lg:24px;
+  --shadow:0 1px 2px rgba(28,24,16,.05),0 10px 26px rgba(28,24,16,.07);
+  --shadow-lg:0 22px 56px rgba(28,24,16,.12);
+  --font-sans:'Noto Sans Thai','Inter',-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;
+  --font-hand:'Mali','Noto Sans Thai',var(--font-sans);
+  --font-mono:'JetBrains Mono','IBM Plex Mono',SFMono-Regular,Menlo,monospace;
+  --ease:cubic-bezier(.4,0,.2,1);
+  --content-w:760px;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{ /* article stays light-mode on purpose (user asked for bright tone) */ }
+}

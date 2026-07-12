@@ -1,0 +1,2515 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kubernetes Production-Grade Handbook — จาก VM เปล่า ๆ ถึง WAF พร้อม Next.js</title>
+<meta name="description" content="บทความสอน Kubernetes ระดับ production แบบลงมือทำจริง ตั้งแต่เตรียม VM, ออกแบบ topology, deploy Next.js, ไปจนถึง backup, monitoring, testing, hardening และ Proxy+WAF">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/doodle.css">
+<link rel="stylesheet" href="assets/css/animations.css">
+<link rel="stylesheet" href="assets/css/article.css">
+</head>
+<body>
+<a href="#main" class="skip-link">ข้ามไปเนื้อหาหลัก</a>
+<div class="topbar"><span></span></div>
+
+<header class="hero">
+  <p class="kicker" data-reveal="fade-up">🚢 Hands-on Kubernetes ตัวจริง</p>
+  <h1 data-reveal="fade-up" data-reveal-delay="80">Kubernetes Production-Grade Handbook<br>จาก VM เปล่า ๆ ถึง WAF พร้อม Next.js</h1>
+  <p class="lede" data-reveal="fade-up" data-reveal-delay="140">
+    ไม่ใช่แค่ "kubectl apply แล้วจบ" — บทความนี้พาไล่ตั้งแต่เตรียมเครื่อง VM เปล่า ๆ, ออกแบบ HA topology,
+    bootstrap cluster ด้วย kubeadm, deploy แอป Next.js จริง, ไปจนถึง tool managing, backup/DR, monitoring,
+    testing, hardening และ Proxy+WAF — ทุก command/YAML ในนี้ค้นจาก docs ทางการของแต่ละโปรเจกต์จริง ๆ
+    ไม่ได้เดาจากความจำ
+  </p>
+  <div class="meta" data-reveal="fade-up" data-reveal-delay="200">
+    <span class="tag accent">18 บท</span>
+    <span class="tag">อ่านยาว ~4 ชม.</span>
+    <span class="tag">kubeadm + bare-metal VM</span>
+    <span class="tag">Ingress-NGINX + ModSecurity</span>
+  </div>
+  <div class="byline" data-reveal="fade-up" data-reveal-delay="260">
+    <div class="avatar">
+      <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="60" cy="60" r="54" fill="none" stroke="var(--text-1)" stroke-width="3.2" stroke-linecap="round"/>
+        <circle cx="59" cy="59.5" r="53.4" fill="none" stroke="var(--text-1)" stroke-width="1.6" opacity=".55" stroke-linecap="round"/>
+        <circle cx="60" cy="50" r="21" fill="none" stroke="var(--text-1)" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M40,52 C41,38 48,30 60,29 C72,30 78,37 79,50" fill="none" stroke="var(--text-1)" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M43,34 C40,44 38,54 40,66" fill="none" stroke="var(--text-1)" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M78,35 C82,38 88,42 88,48" fill="none" stroke="var(--text-1)" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M80,36 C90,42 92,58 88,70 C86,76 84,80 88,86" fill="none" stroke="var(--text-1)" stroke-width="2" stroke-linecap="round"/>
+        <path d="M83,38 C93,46 94,60 90,72 C88,78 87,82 91,88" fill="none" stroke="var(--text-1)" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+        <circle cx="78" cy="38" r="2.6" fill="var(--text-1)"/>
+        <rect x="51" y="47" width="3.2" height="7" rx="1.5" fill="var(--text-1)"/>
+        <rect x="66" y="47" width="3.2" height="7" rx="1.5" fill="var(--text-1)"/>
+        <path d="M52,61 C56,67 64,67 68,61" fill="none" stroke="var(--text-1)" stroke-width="2.4" stroke-linecap="round"/>
+        <line x1="60" y1="71" x2="60" y2="94" stroke="var(--text-1)" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M60,80 L44,96 M60,80 L76,96" fill="none" stroke="var(--text-1)" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M60,94 L46,114 M60,94 L74,114" fill="none" stroke="var(--text-1)" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="who"><b>เขียนโดย Claude</b><span>ค้นจาก docs จริงของแต่ละเครื่องมือ แล้วเล่าใหม่ให้ลงมือทำได้จริง</span></div>
+  </div>
+</header>
+
+<div class="layout">
+  <article class="content" id="main">
+
+    <section class="chapter" id="intro">
+      <p class="ch-kicker">📟 บทที่ 1</p>
+      <h2>ตี 3 คลัสเตอร์ล่ม — แล้วสมชายก็รู้ว่า "production" ของตัวเองไม่เคยเป็น production จริง</h2>
+      <p class="lede">เรื่องเริ่มจากคืนหนึ่งที่ทุกอย่างพังพร้อมกัน แล้วสมชายถึงรู้ว่าคำว่า production-grade มันมีความหมายมากกว่าแค่ "รันอยู่"</p>
+
+      <p>สมชายตั้ง Kubernetes cluster ให้บริษัทสตาร์ทอัพเมื่อ 8 เดือนก่อน วิธีคือ spin up VM หนึ่งตัวบน cloud, รัน <code>kubeadm init</code> ตัวเดียวจบ ไม่มี HA ไม่มี backup ไม่มี monitoring ไม่มี WAF — แต่แอป Next.js ที่ deploy ไว้ก็รันได้ปกติมาตลอด สมชายเลยเรียกมันว่า "production" อย่างสบายใจ</p>
+
+      <div class="speech">
+        <div class="who">😴</div>
+        <div class="bubble"><span class="name">สมชาย</span>(เวลาตี 3) ทำไม pod หายไปหมดเลยวะ... รีสตาร์ท VM ก็ไม่ขึ้น เข้า SSH ก็ไม่ได้ ลูกค้าโทรมาแล้ว 😭</div>
+      </div>
+      <div class="speech right">
+        <div class="who">🧑‍🏫</div>
+        <div class="bubble"><span class="name">นาย ก.</span>node เดียว etcd เดียว disk เดียว — พอ disk เต็มหรือ VM ตายปุ๊บ ทุกอย่างหายพร้อมกันหมด นี่ไม่ใช่ production นี่คือ demo ที่รันนานผิดปกติ</div>
+      </div>
+
+      <p>นาย ก. พูดถูก — สิ่งที่สมชายทำมาตลอดไม่ใช่ "Kubernetes แบบ production" แต่เป็น Kubernetes แบบเดี่ยว ๆ ตัวเดียวที่บังเอิญไม่ล่มมา 8 เดือน จนคืนนั้น disk เต็มเพราะ log ไม่มีการหมุนเวียน etcd corrupt เพราะไม่เคย snapshot ไว้เลย <mark class="mark">และไม่มีใครรู้เลยว่าระบบกำลังจะล่มเพราะไม่มี monitoring/alert อะไรทั้งสิ้น</mark></p>
+
+      <p><strong>กล่าวสั้น ๆ คือ:</strong> production-grade Kubernetes ไม่ใช่แค่ "cluster ที่รันแอปได้" แต่คือ cluster ที่ทนต่อความล้มเหลว, backup ได้, มองเห็นปัญหาได้ก่อนลูกค้าจะโทรมา, และป้องกันการโจมตีจากภายนอกได้ — ครบทั้ง 4 มิตินี้ถึงจะเรียกว่า production ได้เต็มปาก</p>
+
+      <p>บทความนี้จะพาสมชาย (และผู้อ่าน) สร้างคลัสเตอร์ใหม่ตั้งแต่ศูนย์ให้ครบทุกมิติ โดยแบ่งเป็นแผนที่เดินทาง 18 บทตามนี้:</p>
+
+      <div class="doodle-card" data-reveal="fade-up">
+        <p class="callout-title">🗺️ แผนที่บทความ (18 บท)</p>
+        <div class="grid2">
+          <ul style="margin-bottom:0">
+            <li><a href="#architecture">2. สถาปัตยกรรม K8s ฉบับต้องเข้าใจก่อนลงมือ</a></li>
+            <li><a href="#topology">3. ออกแบบ HA Topology</a></li>
+            <li><a href="#vm-prep">4. เตรียมเครื่อง VM</a></li>
+            <li><a href="#bootstrap">5. Bootstrap Cluster ด้วย kubeadm</a></li>
+            <li><a href="#networking">6. Networking: Service, CoreDNS, MetalLB</a></li>
+            <li><a href="#deploy-nextjs">7. Deploy Next.js แบบ production</a></li>
+            <li><a href="#tooling">8. Tool Managing: Helm + Kustomize</a></li>
+            <li><a href="#backup-dr">9. Backup &amp; Disaster Recovery</a></li>
+          </ul>
+          <ul style="margin-bottom:0">
+            <li><a href="#monitoring">10. Monitoring &amp; Observability</a></li>
+            <li><a href="#testing">11. Testing คลัสเตอร์และแอป</a></li>
+            <li><a href="#hardening">12. Hardening ตาม best practice</a></li>
+            <li><a href="#proxy-waf">13. Proxy + WAF</a></li>
+            <li><a href="#case-study">14. ประกอบร่างทั้งหมดเป็นระบบเดียว</a></li>
+            <li><a href="#cheatsheet">15. Cheatsheet ใช้งานจริง</a></li>
+            <li><a href="#summary">16. สรุปบทเรียน</a></li>
+            <li><a href="#references">17. อ้างอิง + 18. แถมท้าย</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout" data-reveal="fade-up">
+        <p class="callout-title">💡 ก่อนเริ่ม</p>
+        <p style="margin:0">ทุกคำสั่ง/YAML ในบทความนี้ค้นและอ้างอิงจาก docs ทางการของแต่ละโปรเจกต์ (kubernetes.io, docs ของ Calico/MetalLB/Helm/Velero/Prometheus/cert-manager/ingress-nginx ฯลฯ) ณ วันที่เขียนบทความ — เวอร์ชันของเครื่องมือเปลี่ยนเร็ว ให้เช็ค version ล่าสุดก่อนใช้งานจริงเสมอ จุดไหนมี caveat เรื่อง version จะมี callout ⚠️ กำกับไว้ให้</p>
+      </div>
+    </section>
+
+    <section class="chapter" id="architecture">
+<p class="ch-kicker">🏗️ บทที่ 2</p>
+<h2>Control Plane กับ Node ต่างกันยังไง แล้ว request หนึ่งอันวิ่งผ่านใครบ้าง</h2>
+<p class="lede">คลัสเตอร์เดี่ยวของสมชายที่ล่มตอนตีสามในบทที่แล้ว มันคือ VM เดียวที่ยัดทุกอย่างไว้ด้วยกัน — พอ process ไหน process หนึ่งค้าง ทุกอย่างค้างตาม บทนี้เราจะแกะดูว่าจริง ๆ แล้ว Kubernetes มี component อะไรบ้าง แต่ละตัวทำหน้าที่อะไร และทำไมการแยกมันออกจากกันถึงเป็นจุดเริ่มต้นของความ HA</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>ผมงงตรงนี้ครับพี่ ก. ตอนคลัสเตอร์ผมล่ม ผม SSH เข้าไปดู เจอ process ชื่อ kube-apiserver, etcd, scheduler เต็มไปหมด นี่มันคนละโปรแกรมกันเลยเหรอ ไม่ใช่ "Kubernetes" ตัวเดียว?</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>ใช่ครับ "Kubernetes" ที่เราพูดถึงกันมันคือชื่อรวมของ component หลายตัวที่ทำงานร่วมกัน ตอนคุณรัน VM เดียว ทุก component เลยไปนั่งอยู่บนเครื่องเดียวกันหมด พอ disk เต็มหรือ CPU พีค ทุกตัวพังพร้อมกันเป็นโดมิโน</div>
+</div>
+
+<p><strong>กล่าวสั้น ๆ คือ</strong> Kubernetes แบ่งงานเป็นสองฝั่งชัดเจน — <span class="mark">control plane</span> ที่ตัดสินใจว่าอะไรควรเกิดขึ้น กับ <span class="mark blue">node component</span> ที่ทำให้มันเกิดขึ้นจริงบนเครื่อง</p>
+
+<figure class="diagram">
+<div class="flow-row" data-reveal="fade-up">
+  <div class="node"><div class="ic">⌨️</div><h5>kubectl apply</h5><p>ส่ง manifest (เช่น Deployment) เข้ามาที่ API</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node hl"><div class="ic">🚪</div><h5>kube-apiserver</h5><p>auth + validate แล้วเขียนลง etcd</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">🗄️</div><h5>etcd</h5><p>เก็บ state ทั้งคลัสเตอร์แบบ key-value</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">🧠</div><h5>controller-manager</h5><p>Deployment controller สร้าง ReplicaSet/Pod object</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">🧮</div><h5>kube-scheduler</h5><p>เห็น Pod ที่ยังไม่มีโหนด เลือกโหนดให้</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">⚙️</div><h5>kubelet + runtime</h5><p>สั่ง containerd รัน container จริงบนโหนด</p></div>
+</div>
+<figcaption>เส้นทางของ <code>kubectl apply</code> หนึ่งครั้ง ตั้งแต่เข้า API จนกลายเป็น container ที่รันจริง — สังเกตว่า apiserver คือจุดเดียวที่ทุกตัวคุยด้วย ไม่มีใครคุยตรงกับ etcd เอง ยกเว้น apiserver</figcaption>
+</figure>
+
+<p>ทีนี้พอเห็นภาพ flow แล้ว มาดูกันทีละตัวว่าใครอยู่ฝั่งไหน และถ้าตัวนั้นตายไปเดี่ยว ๆ จะเกิดอะไรขึ้นกับคลัสเตอร์</p>
+
+<table>
+<thead><tr><th>Component</th><th>อยู่ฝั่งไหน</th><th>ทำหน้าที่อะไร</th><th>ถ้าตัวนี้ล่ม เกิดอะไรขึ้น</th></tr></thead>
+<tbody>
+<tr><td>kube-apiserver</td><td>Control plane</td><td>หน้าประตู REST API ของทั้งคลัสเตอร์ ทุกคำสั่งผ่านตรงนี้หมด</td><td>เข้าคลัสเตอร์ไม่ได้เลย <code>kubectl</code> ค้างหรือ error ทันที</td></tr>
+<tr><td>etcd</td><td>Control plane</td><td>เก็บ state ทั้งหมดของคลัสเตอร์แบบ key-value ที่ consistent</td><td>apiserver อ่าน/เขียน state ไม่ได้ ถือว่าคลัสเตอร์ตายทั้งระบบ</td></tr>
+<tr><td>kube-scheduler</td><td>Control plane</td><td>เลือกโหนดที่เหมาะสมให้ Pod ที่ยังไม่ถูก assign</td><td>Pod เดิมยังรันอยู่ปกติ แต่ Pod ใหม่ค้างสถานะ Pending ตลอด</td></tr>
+<tr><td>kube-controller-manager</td><td>Control plane</td><td>รัน controller loop เช่น Deployment, Node, Job ให้ state จริงตรงกับ state ที่ต้องการ</td><td>ระบบไม่ self-heal เช่น Pod ตายแล้วไม่ถูกสร้างทดแทน</td></tr>
+<tr><td>kubelet</td><td>Node</td><td>agent บนทุกโหนด คอยดูให้ container ตรงกับ PodSpec ที่สั่งมา</td><td>โหนดนั้นถูกมองว่า NotReady และ Pod จะถูกย้ายออกหลัง timeout</td></tr>
+<tr><td>kube-proxy</td><td>Node</td><td>ทำ network rule (iptables/ipvs) ให้ Service concept ทำงานได้จริง</td><td>เข้าถึง Service ผ่าน ClusterIP จากโหนดนั้นไม่ได้</td></tr>
+<tr><td>Container runtime</td><td>Node</td><td>รัน container จริง เช่น containerd, CRI-O</td><td>kubelet สั่งอะไรก็ไม่มีอะไรเกิดขึ้นจริงบนเครื่อง</td></tr>
+</tbody>
+</table>
+
+<p>ลองดูของจริงกัน — ถ้าคลัสเตอร์ตั้งด้วย kubeadm แบบ stacked (ซึ่งเป็นสิ่งที่เราจะทำในบทที่ 5) control plane component เหล่านี้จะถูกรันเป็น static pod อยู่ใน namespace <code>kube-system</code> ลองสั่งดูได้เลย</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ดู pod ทั้งหมดใน control plane namespace</span>
+kubectl get pods -n kube-system -o wide</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก output</p>
+  <ol>
+    <li><strong><code>kube-apiserver-&lt;nodename&gt;</code></strong> — static pod ของ apiserver หนึ่งตัวต่อหนึ่ง control-plane node</li>
+    <li><strong><code>etcd-&lt;nodename&gt;</code></strong> — จะเห็นก็ต่อเมื่อใช้ stacked etcd (รายละเอียดในบทที่ 3) ถ้าใช้ external etcd จะไม่มี pod นี้ในนี้</li>
+    <li><strong><code>kube-scheduler-&lt;nodename&gt;</code></strong> และ <strong><code>kube-controller-manager-&lt;nodename&gt;</code></strong> — รันแบบ leader-election ถ้ามีหลาย control-plane node จะมีหลาย pod แต่มีตัวเดียวที่ "active" จริง</li>
+    <li><strong><code>kube-proxy-xxxxx</code></strong> — เป็น DaemonSet รันบนทุกโหนดรวมทั้ง worker</li>
+    <li>คอลัมน์ <code>-o wide</code> จะโชว์ <code>NODE</code> ให้เห็นว่า pod แต่ละตัวไปนั่งอยู่บนเครื่องไหน — ใช้เช็คได้เลยว่า control-plane node แต่ละตัว "ครบชุด" จริงไหม</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 สองตัวที่ "optional"</p>
+  <p style="margin:0"><code>kube-proxy</code> และ <code>cloud-controller-manager</code> เป็น component ที่ทางการเรียกว่า optional — <code>kube-proxy</code> เพราะบาง CNI (เช่นบาง mode ของ Cilium) แทนที่มันด้วย eBPF ได้ ส่วน <code>cloud-controller-manager</code> มีไว้ผูกกับ cloud provider (สร้าง LoadBalancer, จัดการ node ที่หายไปจาก cloud ฯลฯ) ซึ่งบน bare-metal ล้วน ๆ แบบที่เราจะทำในซีรีส์นี้ไม่ต้องมีเลย</p>
+</div>
+
+<p>รู้จัก component ครบแล้ว คำถามต่อไปคือ — เอา component พวกนี้ไปวางบนกี่เครื่องถึงจะเรียกว่า HA จริง ๆ ไปดูกันในบทที่ 3</p>
+</section>
+
+<section class="chapter" id="topology">
+<p class="ch-kicker">🧭 บทที่ 3</p>
+<h2>Stacked etcd หรือ External etcd — ต้องใช้กี่เครื่องกันแน่ถึงจะ HA</h2>
+<p class="lede">รู้ component แล้วอย่างเดียวยังไม่พอ ต้องรู้ด้วยว่าจะ "กระจาย" component พวกนี้ไปวางบนกี่เครื่องยังไงถึงจะรอดเมื่อมีเครื่องใดเครื่องหนึ่งตาย บทนี้เทียบให้เห็นสอง topology ที่ kubeadm รองรับ พร้อมเรื่อง CIDR ที่ต้องวางแผนตั้งแต่ต้น</p>
+
+<div class="speech">
+  <div class="who">🙋</div>
+  <div class="bubble"><span class="name">นาย ข.</span>พี่ครับ ถ้าจะทำ HA ผมมองว่าก็แค่เพิ่ม control-plane node เป็น 2 เครื่องก็พอแล้วใช่มั้ยครับ เผื่อเครื่องนึงตาย อีกเครื่องรับแทน?</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>ผิดครับ นั่นคือกับดักที่คนตั้ง HA cluster ครั้งแรกชอบพลาด — etcd ใช้ Raft consensus ต้องมี "เสียงข้างมาก" (quorum) ถึงจะเขียนข้อมูลได้ ถ้ามีแค่ 2 โหนด พอโหนดนึงตาย อีกโหนดเหลือ 1 ใน 2 เสียง ไม่ถึงครึ่ง คลัสเตอร์ก็เขียนอะไรไม่ได้เหมือนกัน ต้องขั้นต่ำ 3 เครื่องเสมอ</div>
+</div>
+
+<p><strong>กล่าวสั้น ๆ คือ</strong> HA ของ Kubernetes ผูกกับ quorum ของ etcd โดยตรง — ขั้นต่ำต้องมี etcd 3 ตัว (เลขคี่ เพื่อให้มี majority ชัดเจน) ไม่ว่าจะเลือกวางมันไว้บนเครื่องเดียวกับ control plane (stacked) หรือแยกเครื่องต่างหาก (external)</p>
+
+<p>kubeadm รองรับสอง topology หลัก — เทียบให้เห็นชัด ๆ ในตารางนี้</p>
+
+<table>
+<thead><tr><th></th><th>Stacked etcd</th><th>External etcd</th></tr></thead>
+<tbody>
+<tr><td>วิธีวาง</td><td>etcd รันอยู่บนเครื่องเดียวกับ control plane component</td><td>etcd แยกไปรันบนเครื่องเฉพาะของมันเอง</td></tr>
+<tr><td>Fault isolation</td><td>ต่ำกว่า — ถ้าเครื่อง control-plane node ตาย เสีย control plane + etcd พร้อมกันในโหนดเดียว</td><td>สูงกว่า — apiserver แต่ละตัวคุยกับ etcd cluster แยกต่างหาก ปัญหาฝั่งใดฝั่งหนึ่งไม่ลากอีกฝั่งตาย</td></tr>
+<tr><td>จำนวนเครื่องขั้นต่ำ (HA)</td><td>3 เครื่อง (control-plane + etcd อยู่ด้วยกัน)</td><td>6 เครื่อง (3 control-plane + 3 etcd แยกกัน)</td></tr>
+<tr><td>ความซับซ้อนในการดูแล</td><td>ต่ำกว่า — kubeadm สร้าง etcd static pod ให้อัตโนมัติตอน <code>kubeadm init</code> / <code>kubeadm join --control-plane</code></td><td>สูงกว่า — ต้องตั้ง etcd cluster เองแยกก่อน แล้วป้อน endpoint ให้ apiserver ตอน init</td></tr>
+<tr><td>เหมาะกับ</td><td>ทีมเล็ก-กลาง, งบจำกัด, อยากเริ่ม HA ให้ไวที่สุด</td><td>องค์กรใหญ่ที่ต้องการแยก failure domain ของ data layer ออกจาก control layer ชัดเจน</td></tr>
+</tbody>
+</table>
+
+<p>เอกสารทางการของ kubeadm พูดไว้ตรง ๆ ว่า "kubeadm bootstraps the etcd cluster statically" — คือไม่ว่าจะเลือกแบบไหน kubeadm ก็จัดการ etcd cluster ให้แบบ static ไม่ต้องมี etcd operator แยกต่างหาก สำหรับซีรีส์นี้เราจะใช้ <span class="mark">stacked etcd</span> เพราะจำนวนเครื่องคุ้มกว่าและพอสำหรับ production ระดับกลางได้สบาย</p>
+
+<p>ทีนี้ไม่ว่าจะมี control-plane node กี่ตัว worker ก็ยังต้องรู้จัก apiserver แค่ "จุดเดียว" อยู่ดี — นี่คือที่มาของ <code>--control-plane-endpoint</code> ซึ่งควรชี้ไปที่ load balancer (หรืออย่างน้อยที่สุดคือ DNS name/VIP หนึ่งจุด) ที่กระจาย traffic ไปยัง apiserver ทุกตัว ไม่ใช่ชี้ไป control-plane node ตัวใดตัวหนึ่งตรง ๆ</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>/etc/hosts (ทุกเครื่องในคลัสเตอร์)</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ชี้ชื่อ endpoint กลางไปที่ VIP ของ load balancer</span>
+192.168.0.100  cluster-endpoint</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก config</p>
+  <ol>
+    <li><strong><code>192.168.0.100</code></strong> — IP ของ load balancer (VIP) ที่ยืนหน้า apiserver ทุกตัว ไม่ใช่ IP ของ control-plane node เครื่องใดเครื่องหนึ่ง</li>
+    <li><strong><code>cluster-endpoint</code></strong> — ชื่อที่จะถูกส่งเข้า <code>kubeadm init --control-plane-endpoint=cluster-endpoint</code> ในบทที่ 5 — ทุกเครื่อง (control-plane และ worker) ต้อง resolve ชื่อนี้ไปที่ VIP เดียวกันได้</li>
+    <li>เวลามี control-plane node ตายไปตัวหนึ่ง load balancer จะเลิกส่ง traffic ไปตัวนั้น worker ก็ยังต่อ apiserver ที่เหลือได้โดยไม่ต้องแก้ config อะไรเลย</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 /etc/hosts พอสำหรับ lab แต่ไม่พอสำหรับ production</p>
+  <p style="margin:0">ตัวอย่างข้างบนคือวิธีที่ง่ายที่สุดสำหรับทดสอบในวง lab เท่านั้น งาน production จริงควรใช้ load balancer ที่ทำ health check จริง เช่น HAProxy + keepalived (ทำ VIP แบบ active-passive) หรือ external load balancer ของ network ที่มีอยู่แล้ว ไม่งั้นถ้า control-plane node ที่ IP ตรงกับ <code>/etc/hosts</code> ตายไป ทุกอย่างจะพังตามเพราะไม่มีใคร failover ให้</p>
+</div>
+
+<p>อีกเรื่องที่ต้องวางแผนคู่กับ topology คือ CIDR — <code>pod-network-cidr</code> ที่จะป้อนตอน <code>kubeadm init</code> ต้องไม่ชนกับ network เดิมที่มีอยู่แล้ว (เช่น network ของ VM เอง หรือ office LAN) และต้องตรงกับค่า default ของ CNI ที่จะติดตั้ง — เดี๋ยวจะเห็นว่า Calico ที่เราจะใช้ในบทที่ 5 มีค่า default เป็น <code>192.168.0.0/16</code> พอดี ถ้าเลข CIDR ไม่ตรงกัน Pod จะขอ IP ไม่ได้เลยตั้งแต่ต้น</p>
+
+<p>วางแผน topology และ IP เสร็จแล้ว ต่อไปคือเอามือลงไปเตรียมตัวเครื่องจริง ๆ ก่อนจะรัน kubeadm ได้ — ไปดูกันในบทที่ 4</p>
+</section>
+
+<section class="chapter" id="vm-prep">
+<p class="ch-kicker">🖥️ บทที่ 4</p>
+<h2>เตรียม VM ให้พร้อมเป็น Kubernetes Node ต้องทำอะไรบ้าง</h2>
+<p class="lede">ก่อนจะรัน <code>kubeadm init</code> ได้แม้แต่ครั้งเดียว มีการบ้านที่ต้องทำบนทุก VM ก่อน — พลาดข้อไหนข้อหนึ่ง kubeadm จะฟ้อง preflight error ทันที บทนี้ไล่ทีละขั้นตอนแบบที่ทำได้จริง</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>ผมลอง <code>kubeadm init</code> เลยครับ มัน error ว่า swap enabled แล้วก็ยังบ่นเรื่อง bridge-nf อะไรสักอย่างอีก งงเลย ทำไมต้องเซ็ตอะไรพวกนี้ก่อนด้วย</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>เพราะ kubelet ไม่รองรับ swap ตั้งแต่ต้น มัน scheduling decision จะเพี้ยนถ้า process ไป swap แทนที่จะโดน OOM kill ตามที่ควร ส่วน bridge-nf คือให้ iptables มองเห็น traffic ที่ผ่าน bridge network ได้ ซึ่ง kube-proxy ต้องพึ่งอันนี้ทำงาน ทั้งหมดนี้ต้องเซ็ตให้ครบก่อน ไม่งั้น kubeadm preflight check จะบล็อกไม่ให้ init เลย</div>
+</div>
+
+<p><strong>กล่าวสั้น ๆ คือ</strong> การเตรียม VM คือการปิด swap, เปิด kernel module ที่ networking ของ Kubernetes ต้องใช้, เซ็ต sysctl ให้ traffic ผ่าน bridge ได้ถูกต้อง, ติดตั้ง container runtime ให้ cgroup driver ตรงกับ kubelet และเปิด firewall port ที่จำเป็น</p>
+
+<p>เริ่มจากปิด swap ก่อน — รันบนทุก node ทั้ง control-plane และ worker</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ทุก node</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ปิด swap ทันที</span>
+sudo swapoff -a
+
+<span class="tok-c"># ปิดถาวร — comment บรรทัด swap ออกจาก /etc/fstab</span>
+sudo sed -i <span class="tok-s">'/\sswap\s/s/^/#/'</span> /etc/fstab</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>swapoff -a</code></strong> — ปิด swap partition/file ทั้งหมดที่ active อยู่ตอนนี้ทันที มีผลจนกว่าจะ reboot</li>
+    <li>บรรทัดที่สอง — comment บรรทัดที่มีคำว่า <code>swap</code> ใน <code>/etc/fstab</code> ออก เพื่อไม่ให้ swap ถูก mount กลับมาอัตโนมัติตอน reboot เครื่อง</li>
+    <li>เช็คผลได้ด้วย <code>free -h</code> — คอลัมน์ <code>Swap</code> ต้องเป็น 0 ทั้งหมด</li>
+  </ol>
+</div>
+
+<p>ต่อมาคือ kernel module สองตัวที่ networking ของ Kubernetes ต้องใช้ — <code>overlay</code> สำหรับ container runtime และ <code>br_netfilter</code> สำหรับให้ bridge traffic ผ่าน iptables ได้</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ทุก node</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># โหลด module อัตโนมัติทุกครั้งที่บูต</span>
+cat &lt;&lt;EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+<span class="tok-c"># โหลดทันทีโดยไม่ต้อง reboot</span>
+sudo modprobe overlay
+sudo modprobe br_netfilter</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>/etc/modules-load.d/k8s.conf</code></strong> — ไฟล์ config บอก systemd ว่าต้องโหลด module ไหนบ้างตอนบูตเครื่อง เขียนชื่อ module บรรทัดละตัว</li>
+    <li><strong><code>overlay</code></strong> — filesystem driver ที่ container runtime อย่าง containerd ใช้ทำ layered image</li>
+    <li><strong><code>br_netfilter</code></strong> — ทำให้ traffic ที่วิ่งผ่าน Linux bridge ถูกส่งผ่าน iptables chain ด้วย ซึ่งจำเป็นสำหรับ kube-proxy และ CNI plugin ส่วนใหญ่</li>
+    <li><strong><code>modprobe</code></strong> สองบรรทัดสุดท้าย — โหลด module เข้า kernel ทันทีโดยไม่ต้องรอ reboot เช็คได้ด้วย <code>lsmod | grep br_netfilter</code></li>
+  </ol>
+</div>
+
+<p>ต่อด้วย sysctl ที่ผูกกับ module ข้างบนโดยตรง เพื่อเปิดให้ bridge traffic ผ่าน iptables จริง ๆ และเปิด IP forwarding ให้ node ทำหน้าที่ router ระหว่าง pod ได้</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ทุก node</span><button class="copy-btn">copy</button></div>
+  <pre><code>cat &lt;&lt;EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+<span class="tok-c"># apply โดยไม่ต้อง reboot</span>
+sudo sysctl --system</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก config</p>
+  <ol>
+    <li><strong><code>net.bridge.bridge-nf-call-iptables</code></strong> / <strong><code>ip6tables</code></strong> — บังคับให้ traffic ที่ผ่าน bridge ถูกประเมินโดย iptables/ip6tables rule ด้วย ไม่งั้น kube-proxy เขียน rule ไปก็ไม่มีผลจริง</li>
+    <li><strong><code>net.ipv4.ip_forward = 1</code></strong> — เปิดให้เครื่องนี้ forward packet ข้าม interface ได้ ซึ่งจำเป็นเพราะ pod บนโหนดหนึ่งต้องคุยกับ pod อีกโหนดผ่าน node เป็นทางผ่าน</li>
+    <li><strong><code>sysctl --system</code></strong> — โหลด config ทุกไฟล์ใน <code>/etc/sysctl.d/</code> เข้าไปใช้จริงทันที ไม่ต้อง reboot</li>
+    <li>เช็คผลด้วย <code>sysctl net.ipv4.ip_forward</code> — ต้องได้ค่ากลับมาเป็น <code>net.ipv4.ip_forward = 1</code></li>
+  </ol>
+</div>
+
+<p>ถัดมาคือ container runtime — เราจะใช้ containerd เพราะเป็นตัวที่ community ใช้กันมากที่สุดกับ kubeadm ขั้นตอนคือ generate config default มาก่อน แล้วค่อยเปิด <code>SystemdCgroup</code></p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>/etc/containerd/config.toml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># generate default config ก่อน (ทับของเดิมถ้ามี)</span>
+containerd config default | sudo tee /etc/containerd/config.toml
+
+<span class="tok-c"># containerd 1.x — path เดิม</span>
+<span class="tok-n">[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]</span>
+  <span class="tok-k">SystemdCgroup</span> = <span class="tok-f">true</span>
+
+<span class="tok-c"># containerd 2.x — path เปลี่ยน! (grpc.v1.cri → cri.v1.runtime)</span>
+<span class="tok-n">[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]</span>
+  <span class="tok-k">SystemdCgroup</span> = <span class="tok-f">true</span>
+
+sudo systemctl restart containerd</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก config</p>
+  <ol>
+    <li><strong><code>containerd config default</code></strong> — generate ไฟล์ config เริ่มต้นที่ถูกต้องตามเวอร์ชันที่ติดตั้งจริง เช็คเวอร์ชันก่อนด้วย <code>containerd --version</code></li>
+    <li><strong>path ของ <code>[plugins...runc.options]</code></strong> — ต้องเลือกให้ตรงกับเวอร์ชัน containerd ที่ลงจริง ถ้าใช้ path ผิดเวอร์ชัน block นี้จะไม่มีผลอะไรเลยเงียบ ๆ (silent no-op)</li>
+    <li><strong><code>SystemdCgroup = true</code></strong> — บอก containerd ให้ใช้ systemd เป็น cgroup driver ต้องตรงกับ cgroup driver ของ kubelet (ค่า default ของ kubelet เวอร์ชันใหม่คือ systemd อยู่แล้ว) ถ้าไม่ตรงกัน node จะไม่เข้า Ready</li>
+    <li><strong><code>systemctl restart containerd</code></strong> — apply config ใหม่ ต้องรันทุกครั้งหลังแก้ config.toml</li>
+  </ol>
+</div>
+
+<div class="callout warn" data-reveal="fade-up">
+  <p class="callout-title">⚠️ containerd 1.x กับ 2.x ใช้ path ต่างกัน</p>
+  <p style="margin:0">นี่คือสาเหตุอันดับต้น ๆ ที่คลัสเตอร์เพิ่งตั้งใหม่แล้ว node ค้าง NotReady ทั้งที่ทำตาม guide เป๊ะ — เอา config แบบ containerd 1.x ไปใส่ในเครื่องที่ลง containerd 2.x (หรือกลับกัน) แล้ว path ไม่ match block นั้นจะไม่ error ให้เห็น แค่ไม่มีผลอะไรเลย เช็ค <code>containerd --version</code> ก่อนแก้ config ทุกครั้ง</p>
+</div>
+
+<p>ก่อนจะปิดท้าย ต้องเปิด firewall port ให้ครบด้วย — control-plane node กับ worker node ต้องการ port ไม่เหมือนกัน</p>
+
+<table>
+<thead><tr><th>Node type</th><th>Port</th><th>ใช้ทำอะไร</th></tr></thead>
+<tbody>
+<tr><td rowspan="5">Control plane</td><td>6443/tcp</td><td>kube-apiserver</td></tr>
+<tr><td>2379-2380/tcp</td><td>etcd client API</td></tr>
+<tr><td>10250/tcp</td><td>kubelet API</td></tr>
+<tr><td>10251/tcp</td><td>kube-scheduler</td></tr>
+<tr><td>10252/tcp</td><td>kube-controller-manager</td></tr>
+<tr><td rowspan="2">Worker</td><td>10250/tcp</td><td>kubelet API</td></tr>
+<tr><td>30000-32767/tcp</td><td>NodePort service range</td></tr>
+</tbody>
+</table>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># เช็คว่า apiserver เปิด port แล้วจริง (รันบน control-plane node)</span>
+nc 127.0.0.1 6443 -zv -w 2
+
+<span class="tok-c"># เช็ค MAC address ไม่ซ้ำกันระหว่าง node (รันทุกเครื่อง)</span>
+ip link
+
+<span class="tok-c"># เช็ค product_uuid ไม่ซ้ำกันระหว่าง node (รันทุกเครื่อง)</span>
+sudo cat /sys/class/dmi/id/product_uuid</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>nc 127.0.0.1 6443 -zv -w 2</code></strong> — ทดสอบว่า port 6443 เปิดรับ connection อยู่ไหม (<code>-z</code> คือแค่เช็ค ไม่ส่งข้อมูล, <code>-w 2</code> คือ timeout 2 วินาที) ใช้ debug ตอน worker join แล้วต่อ apiserver ไม่ติด</li>
+    <li><strong><code>ip link</code></strong> — โชว์ MAC address ของทุก network interface เอาไปเทียบข้ามเครื่อง ถ้า VM ถูก clone มาจาก template เดียวกันแบบไม่เปลี่ยน MAC อาจชนกันได้ ซึ่ง kubeadm preflight จะ error</li>
+    <li><strong><code>product_uuid</code></strong> — UUID เฉพาะเครื่องที่ kubeadm ใช้ระบุตัวตนของแต่ละโหนด ถ้า VM clone มาแบบเดียวกันแล้ว UUID ซ้ำกัน kubeadm จะปฏิเสธไม่ให้ join</li>
+  </ol>
+</div>
+
+<p>VM ทุกเครื่องพร้อมแล้ว — swap ปิด, module โหลด, sysctl เซ็ต, containerd รันด้วย cgroup driver ที่ถูกต้อง, firewall เปิด port ครบ ถึงเวลาลง kubeadm จริง ๆ และรัน init ครั้งแรกในบทที่ 5</p>
+</section>
+
+<section class="chapter" id="bootstrap">
+<p class="ch-kicker">🚀 บทที่ 5</p>
+<h2>Bootstrap คลัสเตอร์จริง — kubeadm init แบบ HA จนถึง CNI พร้อมใช้งาน</h2>
+<p class="lede">VM พร้อมหมดแล้วจากบทที่แล้ว บทนี้คือขั้นตอนตัวจริง — ติดตั้ง kubeadm, รัน init แบบ HA, join worker กับ control-plane node เพิ่ม แล้วปิดท้ายด้วยการลง Calico ให้ Pod คุยกันได้</p>
+
+<div class="speech">
+  <div class="who">🙋</div>
+  <div class="bubble"><span class="name">นาย ข.</span>ผมเจอ blog เก่า ๆ สอนลง kubeadm ด้วย <code>apt-key add</code> แล้ว repo <code>apt.kubernetes.io</code> จาก <code>packages.cloud.google.com</code> ใช้ตามนั้นได้เลยใช่มั้ยครับ?</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>อย่าเลยครับ นั่น repo เก่าที่ deprecated ไปแล้ว ตั้งแต่เวอร์ชันหลัง 13 ก.ย. 2023 เป็นต้นมา Kubernetes ย้ายมาใช้ <code>pkgs.k8s.io</code> เป็น official package repo ถ้าคุณยังใช้ repo เก่าอยู่ คุณจะติดอยู่ที่เวอร์ชันเก่ามาก ๆ หรือแย่กว่านั้นคือ install ไม่ผ่านเลย</div>
+</div>
+
+<p><strong>กล่าวสั้น ๆ คือ</strong> การ bootstrap คลัสเตอร์คือ ติดตั้ง kubeadm/kubelet/kubectl จาก repo ที่ถูกต้อง → <code>kubeadm init</code> ที่ control-plane node ตัวแรกแบบระบุ endpoint กลาง → join control-plane node ที่เหลือและ worker เข้ามา → ลง CNI ให้ Pod มี network ใช้งานได้จริง</p>
+
+<div class="callout warn" data-reveal="fade-up">
+  <p class="callout-title">⚠️ อย่าใช้ repo เก่า packages.cloud.google.com</p>
+  <p style="margin:0"><code>apt.kubernetes.io</code> ที่ชี้ไปที่ <code>packages.cloud.google.com/apt</code> เป็น repo เก่าที่ deprecated แล้ว ไม่รองรับเวอร์ชันใหม่ ๆ ของ Kubernetes อีกต่อไป (โดยเฉพาะทุกเวอร์ชันที่ออกหลัง 13 ก.ย. 2023) repo ที่ถูกต้องตอนนี้คือ <strong>pkgs.k8s.io</strong> ซึ่งแยก repo ตาม minor version (เช่น <code>core:/stable:/v1.31</code>) ต่างจาก repo เก่าที่รวมทุกเวอร์ชันไว้ที่เดียว — บทความ/tutorial เก่าบนอินเทอร์เน็ตจำนวนมากยังสอน repo เก่าอยู่ ระวังให้ดี</p>
+</div>
+
+<p>ติดตั้ง kubelet, kubeadm, kubectl บนทุก node (ทั้ง control-plane และ worker) ด้วย repo ปัจจุบัน</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ทุก node (Debian/Ubuntu)</span><button class="copy-btn">copy</button></div>
+  <pre><code>sudo apt-get update
+sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+
+<span class="tok-c"># ดึง GPG key จาก repo ปัจจุบัน (ไม่ใช่ apt-key add แบบเก่า)</span>
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | <span class="tok-n">\</span>
+  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+<span class="tok-c"># เพิ่ม repo ของ minor version ที่ต้องการ</span>
+echo <span class="tok-s">'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /'</span> | <span class="tok-n">\</span>
+  sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+
+<span class="tok-c"># กัน apt upgrade เผลอเปลี่ยนเวอร์ชันแบบไม่ตั้งใจ</span>
+sudo apt-mark hold kubelet kubeadm kubectl</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>pkgs.k8s.io/core:/stable:/v1.31/deb/</code></strong> — repo แยกตาม minor version ชัดเจน เลข <code>v1.31</code> ต้องเปลี่ยนตามเวอร์ชันเป้าหมายของคลัสเตอร์คุณ</li>
+    <li><strong>GPG key ผ่าน <code>gpg --dearmor</code></strong> — วิธีปัจจุบันที่แทนที่ <code>apt-key add</code> ที่ deprecated ไปแล้วเช่นกัน</li>
+    <li><strong><code>apt-mark hold</code></strong> — ล็อกเวอร์ชันไว้ ป้องกัน <code>apt upgrade</code> ปกติดันเวอร์ชัน kubelet ให้สูงกว่า apiserver โดยไม่ตั้งใจ (กติกา version skew คือ kubelet ตามหลัง apiserver ได้ไม่เกิน 1 minor version และห้ามนำหน้าเด็ดขาด)</li>
+    <li>ทำ 4 บรรทัดนี้ให้ครบบน<strong>ทุก node</strong> ไม่ใช่แค่ control-plane — worker ก็ต้องมี kubelet + kubeadm เหมือนกัน (kubectl จริง ๆ จำเป็นเฉพาะเครื่องที่จะสั่งคลัสเตอร์)</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 เช็ค version ล่าสุดก่อนใช้งานจริง</p>
+  <p style="margin:0"><code>v1.31</code> ในตัวอย่างนี้คือ minor version ที่เสถียรและใช้กันแพร่หลายตอนเขียนบทความนี้ ให้เช็ค release ล่าสุดที่ <a href="https://kubernetes.io/releases/" target="_blank" rel="noopener">kubernetes.io/releases</a> ก่อนเลือกใช้จริง แล้วแทนที่เลข <code>v1.31</code> ทุกจุดในคำสั่งข้างบนให้ตรงกัน</p>
+</div>
+
+<p>ติดตั้งครบทุกเครื่องแล้ว มาเริ่ม init คลัสเตอร์ที่ control-plane node ตัวแรก — ใช้ฟอร์ม HA ที่มี <code>--control-plane-endpoint</code> และ <code>--upload-certs</code></p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>control-plane node ตัวแรก</span><button class="copy-btn">copy</button></div>
+  <pre><code>kubeadm init <span class="tok-n">\</span>
+  --control-plane-endpoint=cluster-endpoint <span class="tok-n">\</span>
+  --pod-network-cidr=192.168.0.0/16 <span class="tok-n">\</span>
+  --upload-certs</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก flag</p>
+  <ol>
+    <li><strong><code>--control-plane-endpoint=cluster-endpoint</code></strong> — ชื่อ/IP ของ load balancer ที่วางแผนไว้ในบทที่ 3 บังคับให้ kubeadm เขียน endpoint นี้ลงใน kubeconfig ทุกไฟล์ที่ generate แทนที่จะใช้ IP ของ control-plane node ตัวแรกตรง ๆ — ถ้าไม่ใส่ flag นี้ตั้งแต่ init ครั้งแรก จะย้อนกลับมาใส่ทีหลังไม่ได้ง่าย ๆ</li>
+    <li><strong><code>--pod-network-cidr=192.168.0.0/16</code></strong> — CIDR ที่วางแผนไว้ในบทที่ 3 ต้องตรงกับค่า default ของ Calico ที่จะลงในขั้นถัดไป ถ้าเปลี่ยน CNI ต้องเช็ค default CIDR ของ CNI นั้นให้ตรงกันด้วย</li>
+    <li><strong><code>--upload-certs</code></strong> — เข้ารหัสและอัปโหลด certificate ของ control plane ขึ้น etcd ชั่วคราว เพื่อให้ control-plane node ตัวถัด ๆ ไปที่จะ join ดึง cert ชุดเดียวกันไปใช้ได้ โดยไม่ต้อง copy cert ข้ามเครื่องด้วยมือ</li>
+    <li>ท้าย output จะมีคำสั่ง <code>kubeadm join</code> สองแบบให้ copy ไว้ — แบบสำหรับ worker กับแบบสำหรับ control-plane node เพิ่ม เก็บไว้ใช้ในขั้นถัดไป</li>
+  </ol>
+</div>
+
+<p>ตั้งค่า kubeconfig ให้ user ปกติสั่ง <code>kubectl</code> ได้โดยไม่ต้อง sudo</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>control-plane node ตัวแรก</span><button class="copy-btn">copy</button></div>
+  <pre><code>mkdir -p <span class="tok-n">$HOME</span>/.kube
+sudo cp -i /etc/kubernetes/admin.conf <span class="tok-n">$HOME</span>/.kube/config
+sudo chown <span class="tok-n">$(id -u)</span>:<span class="tok-n">$(id -g)</span> <span class="tok-n">$HOME</span>/.kube/config</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>/etc/kubernetes/admin.conf</code></strong> — kubeconfig ที่ kubeadm สร้างให้อัตโนมัติหลัง init สำเร็จ มีสิทธิ์ admin เต็ม</li>
+    <li><strong><code>cp -i</code></strong> — copy มาไว้ที่ <code>~/.kube/config</code> ซึ่งเป็นตำแหน่งที่ <code>kubectl</code> มองหา config โดย default</li>
+    <li><strong><code>chown</code></strong> — เปลี่ยนเจ้าของไฟล์จาก root มาเป็น user ปัจจุบัน จะได้ไม่ต้อง <code>sudo kubectl</code> ทุกครั้ง</li>
+  </ol>
+</div>
+
+<p>ตอนนี้มี control-plane node แค่ตัวเดียว — join เครื่องที่เหลือเข้ามา ใช้คำสั่งจาก output ตอน init (ตัวอย่างหน้าตาประมาณนี้)</p>
+
+<table>
+<thead><tr><th></th><th>Worker node</th><th>Control-plane node เพิ่ม</th></tr></thead>
+<tbody>
+<tr><td>Flag หลัก</td><td><code>--token</code> + <code>--discovery-token-ca-cert-hash</code></td><td>เหมือน worker บวก <code>--control-plane --certificate-key</code></td></tr>
+<tr><td>ผลลัพธ์</td><td>เข้าเป็น node ธรรมดา รัน kubelet + kube-proxy</td><td>เข้าเป็น control-plane node เต็มรูปแบบ ได้ etcd + apiserver + scheduler + controller-manager เพิ่ม</td></tr>
+<tr><td>ต้องมี cert ไหม</td><td>ไม่ต้อง</td><td>ต้องมี <code>--certificate-key</code> จาก <code>--upload-certs</code> ตอน init</td></tr>
+</tbody>
+</table>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>worker node</span><button class="copy-btn">copy</button></div>
+  <pre><code>kubeadm join 192.168.0.100:6443 <span class="tok-n">\</span>
+  --token abcdef.0123456789abcdef <span class="tok-n">\</span>
+  --discovery-token-ca-cert-hash sha256:1234...</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก flag</p>
+  <ol>
+    <li><strong><code>192.168.0.100:6443</code></strong> — IP ของ <code>--control-plane-endpoint</code> ที่ตั้งไว้ตอน init ไม่ใช่ IP ของ node ตัวใดตัวหนึ่งตรง ๆ</li>
+    <li><strong><code>--token</code></strong> — token ชั่วคราวที่ใช้ยืนยันตัวตนตอน join มีอายุ 24 ชั่วโมงโดย default</li>
+    <li><strong><code>--discovery-token-ca-cert-hash</code></strong> — hash ของ CA certificate ใช้ยืนยันว่ากำลังต่อเข้า apiserver ที่ถูกต้องจริง ๆ ป้องกัน man-in-the-middle</li>
+    <li>ถ้า join เพิ่มเป็น control-plane node ให้เติม <code>--control-plane --certificate-key &lt;key จาก --upload-certs&gt;</code> ต่อท้ายคำสั่งเดียวกันนี้</li>
+    <li>ถ้า token หมดอายุไปแล้ว (เกิน 24 ชม.) generate ใหม่ได้ด้วย <code>kubeadm token create --print-join-command</code> บน control-plane node ตัวใดก็ได้ — และถ้าลืม copy <code>--certificate-key</code> ไว้ ให้รัน <code>kubeadm init phase upload-certs --upload-certs</code> เพื่อขอ key ใหม่</li>
+  </ol>
+</div>
+
+<p>ตอนนี้ node ครบทุกตัวแล้ว แต่ถ้าลอง <code>kubectl get pods -n kube-system</code> จะเห็น CoreDNS ค้างสถานะ <code>Pending</code> อยู่ — เพราะยังไม่มี CNI ให้ Pod มี network ใช้ ลง Calico กันเลย</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>control-plane node</span><button class="copy-btn">copy</button></div>
+  <pre><code>kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/v1_crd_projectcalico_org.yaml
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/tigera-operator.yaml
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/custom-resources.yaml
+
+<span class="tok-c"># รอดูจนกว่า tigerastatus จะขึ้น Available ทุกตัว</span>
+watch kubectl get tigerastatus</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>v1_crd_projectcalico_org.yaml</code></strong> — ลง Custom Resource Definition ทั้งหมดที่ Calico ต้องใช้ก่อน เพื่อให้ Kubernetes API รู้จัก resource type ของ Calico</li>
+    <li><strong><code>tigera-operator.yaml</code></strong> — ลง operator ที่จะคอยจัดการ install/upgrade component ของ Calico ให้อัตโนมัติแทนการ apply manifest มือ</li>
+    <li><strong><code>custom-resources.yaml</code></strong> — สั่ง operator ให้ deploy Calico จริง ค่า default ในไฟล์นี้ตั้ง CIDR เป็น <code>192.168.0.0/16</code> ตรงกับที่ใส่ใน <code>--pod-network-cidr</code> ตอน init พอดี</li>
+    <li><strong><code>watch kubectl get tigerastatus</code></strong> — เช็คสถานะการ deploy แบบ real-time ทุก component ต้องขึ้น <code>Available</code> ถึงจะถือว่า Calico พร้อมใช้งานจริง</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 เช็ค version ล่าสุดก่อนใช้งานจริง</p>
+  <p style="margin:0"><code>v3.32.1</code> คือเวอร์ชัน Calico ที่ pin ไว้ตอนเขียนบทความนี้ เช็ค tag ล่าสุดที่ <a href="https://github.com/projectcalico/calico/releases" target="_blank" rel="noopener">github.com/projectcalico/calico/releases</a> ก่อนใช้งานจริง แล้วแทนที่เลขเวอร์ชันในทั้งสาม URL ให้ตรงกัน</p>
+</div>
+
+<p>เช็คปิดท้ายด้วย <code>kubectl get nodes</code> — ทุก node ต้องขึ้น <code>Ready</code> และ <code>kubectl get pods -n kube-system</code> CoreDNS ต้องเปลี่ยนจาก Pending เป็น Running แล้ว ถือว่าคลัสเตอร์ HA พร้อมใช้งานจริง ที่เหลือคือทำให้แอปที่รันข้างในคุยกับโลกภายนอกได้ — เรื่อง Service กับ LoadBalancer บน bare-metal รอในบทที่ 6</p>
+</section>
+
+<section class="chapter" id="networking">
+<p class="ch-kicker">🌐 บทที่ 6</p>
+<h2>Service มีกี่แบบ แล้ว bare-metal จะมี LoadBalancer ได้ยังไงในเมื่อไม่มี Cloud ให้เรียก</h2>
+<p class="lede">คลัสเตอร์ HA พร้อมแล้ว แอปรันอยู่ข้างในแล้ว แต่จะให้คนนอกเข้าถึงยังไง บทนี้ไล่ตั้งแต่ Service type พื้นฐาน, CoreDNS, ไปจนถึง MetalLB ที่ทำให้ <code>type: LoadBalancer</code> ใช้งานได้จริงบน bare-metal</p>
+
+<div class="speech">
+  <div class="who">🙋</div>
+  <div class="bubble"><span class="name">นาย ข.</span>ผมลองสร้าง Service type LoadBalancer ดูครับ แต่ <code>EXTERNAL-IP</code> มันค้าง <code>&lt;pending&gt;</code> ไม่ยอมขึ้น IP สักที ทั้งที่บน EKS/GKE ผมทำแบบนี้แล้วได้ IP ทันทีเลยนะ</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>เพราะบน EKS/GKE มี <code>cloud-controller-manager</code> คอยสั่งสร้าง load balancer ของ cloud นั้นให้อัตโนมัติ แต่บน bare-metal ไม่มี cloud ให้สั่ง จะค้าง pending แบบนี้ตลอดไปถ้าไม่มีอะไรมาเติมช่องว่างนั้น — นี่คืองานของ MetalLB</div>
+</div>
+
+<p><strong>กล่าวสั้น ๆ คือ</strong> Service คือชื่อกลางที่ Pod เปลี่ยนไปมาได้แต่ยังเข้าถึงได้เสมอ ส่วน <code>type: LoadBalancer</code> บน bare-metal ต้องมีตัวช่วยอย่าง MetalLB มาทำหน้าที่แทน cloud provider ถึงจะได้ IP จริง ไม่ค้าง pending</p>
+
+<table>
+<thead><tr><th>Type</th><th>เข้าถึงจากไหน</th><th>สร้างอะไรให้อัตโนมัติ</th><th>เหมาะกับ</th></tr></thead>
+<tbody>
+<tr><td>ClusterIP</td><td>ภายในคลัสเตอร์เท่านั้น (default)</td><td>— (เป็น type พื้นฐานที่สุด)</td><td>service ที่คุยกันเองภายใน เช่น backend คุยกับ database</td></tr>
+<tr><td>NodePort</td><td>&lt;NodeIP&gt;:&lt;NodePort&gt; จากนอกคลัสเตอร์</td><td>สร้าง ClusterIP ให้โดยอัตโนมัติด้วย</td><td>ทดสอบ/dev หรือกรณีไม่มี load balancer เลย</td></tr>
+<tr><td>LoadBalancer</td><td>IP ภายนอกที่ load balancer จ่ายให้</td><td>สร้าง NodePort + ClusterIP ให้โดยอัตโนมัติ</td><td>expose service ออก internet/network ภายนอกแบบ production</td></tr>
+<tr><td>ExternalName</td><td>คืนค่าเป็น DNS CNAME ไปยังชื่อภายนอก ไม่มี selector</td><td>— (ไม่ proxy traffic เอง แค่ตอบ DNS)</td><td>อ้างถึง service ภายนอกคลัสเตอร์ด้วยชื่อภายใน</td></tr>
+</tbody>
+</table>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>service.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion:</span> v1
+<span class="tok-n">kind:</span> Service
+<span class="tok-n">metadata:</span>
+  <span class="tok-n">name:</span> my-service
+<span class="tok-n">spec:</span>
+  <span class="tok-n">selector:</span>
+    <span class="tok-n">app.kubernetes.io/name:</span> MyApp
+  <span class="tok-n">ports:</span>
+    - <span class="tok-n">protocol:</span> TCP
+      <span class="tok-n">port:</span> 80
+      <span class="tok-n">targetPort:</span> 9376</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก field</p>
+  <ol>
+    <li><strong><code>spec.selector</code></strong> — Service ใช้ label นี้ไล่หา Pod ที่ตรงกันทั้งหมด แล้วส่ง traffic กระจายไปให้ — ไม่ผูกกับชื่อ Pod ตรง ๆ ดังนั้น Pod ตายแล้วเกิดใหม่ก็ยังถูกจับได้เหมือนเดิม</li>
+    <li><strong><code>spec.ports.port</code></strong> — port ที่ Service เปิดให้ฝั่งเรียกเข้ามาใช้ (คนละอันกับ port จริงของ container)</li>
+    <li><strong><code>spec.ports.targetPort</code></strong> — port จริงที่ container ข้างใน Pod เปิดฟังอยู่ Service จะ forward <code>port</code> ไปที่ <code>targetPort</code> นี้</li>
+    <li>ไม่มี <code>type</code> ระบุไว้ = default เป็น <code>ClusterIP</code> ถ้าจะทำ LoadBalancer ต้องเติม <code>type: LoadBalancer</code> เข้าไปใน spec</li>
+  </ol>
+</div>
+
+<p>ก่อนไปเรื่อง LoadBalancer พูดถึง CoreDNS สักนิด — CoreDNS คือ DNS server ที่รันเป็น add-on มาตรฐานของคลัสเตอร์ (เป็น Pod ที่เราเห็นตอนมันค้าง Pending รอ CNI ในบทที่แล้ว) หน้าที่ของมันคือทำให้ Pod เรียก Service ด้วย<span class="mark blue">ชื่อ</span> (เช่น <code>my-service.default.svc.cluster.local</code>) แทนที่จะต้องจำ ClusterIP เป็นตัวเลขทุกครั้ง — ทุก Service ที่สร้างจะได้ DNS record นี้ให้อัตโนมัติ ไม่ต้องตั้งค่าอะไรเพิ่ม</p>
+
+<p>ทีนี้กลับมาที่ปัญหาของนาย ข. — <code>type: LoadBalancer</code> บน bare-metal ต้องมี MetalLB มาทำหน้าที่แทน cloud-controller-manager โดยเลือกใช้โหมด Layer2 ซึ่งเอกสารทางการบอกไว้ว่า "Layer 2 mode is the simplest to configure: in many cases, you don't need any protocol-specific configuration, only IP addresses" — คือไม่ต้องยุ่งกับ BGP หรือ router ใด ๆ เลย</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ติดตั้ง MetalLB ด้วย manifest ตัวเต็ม (ไม่ต้องใช้ BGP/FRR)</span>
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก command</p>
+  <ol>
+    <li><strong><code>metallb-native.yaml</code></strong> — manifest ตัวเต็มที่ลง controller + speaker (Pod ที่ประกาศ IP ผ่าน ARP/NDP บน network segment เดียวกัน) และ CRD ที่ MetalLB ต้องใช้ทั้งหมดในคำสั่งเดียว</li>
+    <li>ทางเลือกอื่นคือติดตั้งผ่าน Helm ด้วย <code>helm repo add metallb https://metallb.github.io/metallb</code> ตามด้วย <code>helm install metallb metallb/metallb</code> — เหมาะถ้าคลัสเตอร์จัดการ add-on อื่นด้วย Helm อยู่แล้ว</li>
+    <li>รอให้ Pod ใน namespace <code>metallb-system</code> ขึ้น <code>Running</code> ครบก่อนค่อยไปตั้งค่า IP pool ในขั้นถัดไป</li>
+  </ol>
+</div>
+
+<p>ติดตั้งเสร็จแล้ว MetalLB ยังไม่รู้ว่าจะแจก IP ช่วงไหน — ต้องบอกมันผ่าน <code>IPAddressPool</code> และเปิดโหมด Layer2 ผ่าน <code>L2Advertisement</code></p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>metallb-config.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion:</span> metallb.io/v1beta1
+<span class="tok-n">kind:</span> IPAddressPool
+<span class="tok-n">metadata:</span>
+  <span class="tok-n">name:</span> first-pool
+  <span class="tok-n">namespace:</span> metallb-system
+<span class="tok-n">spec:</span>
+  <span class="tok-n">addresses:</span>
+  - 192.168.1.240-192.168.1.250
+---
+<span class="tok-n">apiVersion:</span> metallb.io/v1beta1
+<span class="tok-n">kind:</span> L2Advertisement
+<span class="tok-n">metadata:</span>
+  <span class="tok-n">name:</span> example
+  <span class="tok-n">namespace:</span> metallb-system
+<span class="tok-n">spec:</span>
+  <span class="tok-n">ipAddressPools:</span>
+  - first-pool</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก field</p>
+  <ol>
+    <li><strong><code>IPAddressPool.spec.addresses</code></strong> — ช่วง IP ที่ MetalLB จะหยิบไปแจกให้ Service ที่เป็น <code>type: LoadBalancer</code> ต้องเป็นช่วง IP ที่ว่างจริงบน network segment เดียวกับ node และไม่ชนกับ DHCP pool ที่มีอยู่แล้ว</li>
+    <li><strong><code>L2Advertisement.spec.ipAddressPools</code></strong> — ระบุชัดเจนว่า advertisement นี้ผูกกับ pool ชื่อ <code>first-pool</code> เท่านั้น</li>
+    <li>ถ้าไม่ใส่ <code>ipAddressPools</code> เลย MetalLB จะเข้าใจว่า advertise ทุก pool ที่มีอยู่ทั้งหมด — สะดวกตอน lab แต่งาน production ควรระบุให้ชัดเสมอ กันพลาดตอนมีหลาย pool ทับ scope กัน</li>
+    <li>เมื่อ apply YAML นี้แล้ว ลองสร้าง Service ใหม่แบบ <code>type: LoadBalancer</code> ดู — คราวนี้ <code>EXTERNAL-IP</code> จะได้ IP จากช่วง <code>192.168.1.240-192.168.1.250</code> ทันที ไม่ค้าง <code>&lt;pending&gt;</code> เหมือนที่นาย ข. เจอแล้ว</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 เช็ค version ล่าสุดก่อนใช้งานจริง</p>
+  <p style="margin:0"><code>v0.16.1</code> คือเวอร์ชัน MetalLB ที่ pin ไว้ตอนเขียนบทความนี้ เช็คเวอร์ชันล่าสุดที่ <a href="https://github.com/metallb/metallb/releases" target="_blank" rel="noopener">github.com/metallb/metallb/releases</a> ก่อนใช้งานจริง แล้วแทนที่เลขเวอร์ชันใน URL ให้ตรงกัน</p>
+</div>
+
+<p>ตอนนี้คลัสเตอร์ของสมชายมี control plane ครบสามเครื่อง etcd quorum อยู่ครบ, worker พร้อมรับงาน, Calico ให้ Pod คุยกันได้ และ MetalLB ทำให้แอปมี IP ให้คนนอกเข้าถึงได้จริง — จากคลัสเตอร์ตัวเดียวที่ล่มตอนตีสาม กลายเป็นระบบที่ทนต่อโหนดใดโหนดหนึ่งตายได้แบบไม่มีใครรู้ตัว ที่เหลือคือเอาไปลองใช้งานจริงกับ workload จริง ๆ ดู</p>
+</section>
+<section class="chapter" id="deploy-nextjs">
+
+<p class="ch-kicker">🚀 บทที่ 7</p>
+<h2>จาก <code>next build</code> ถึง Pod ที่วิ่งจริงบน Kubernetes — Deploy Next.js แบบ Production ทำยังไง</h2>
+<p class="lede">บทนี้เป็นบทที่โค้ดเยอะที่สุดในบทความทั้งหมด เพราะเราจะเดินตาม pipeline การ deploy Next.js app จริงๆ ตั้งแต่ next.config.js ยัน HorizontalPodAutoscaler ทีละขั้น ไม่มีทฤษฎีลอยๆ มีแต่ของที่เอาไป apply ได้เลย</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>build Docker image จาก Next.js app แล้วทำไม image มันใหญ่จัง 1.2GB นี่ปกติเหรอครับ node_modules ทั้งก้อนติดไปด้วยเลย</div>
+</div>
+
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>เพราะแกยัง copy ทั้ง project แล้ว <code>npm start</code> อยู่ไง ลอง set <code>output: 'standalone'</code> ใน next.config.js ดูสิ Next.js จะ trace เฉพาะ dependency ที่ใช้จริง แล้วสร้างโฟลเดอร์ deploy แยกต่างหากให้เลย</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> การ deploy Next.js บน Kubernetes แบบ production ต้องผ่าน 3 ชั้น — (1) build ให้ output เล็กและพกพาได้ด้วย <code>standalone</code>, (2) ห่อด้วย multi-stage Dockerfile ที่ layer เดียวไม่พก build tool ติดไปด้วย, (3) เขียน manifest ให้ Kubernetes รู้ว่า Pod นี้ต้องการ resource เท่าไหร่ เช็ค health ยังไง และรับ traffic ทางไหน</p>
+
+<h3>(a) <code>output: 'standalone'</code> คืออะไร</h3>
+
+<p>ค่า default ของ Next.js build จะโยน dependency ทั้งหมดใน node_modules ไปกับ image ตรงๆ ซึ่งใหญ่และช้าเวลา build ทุกครั้ง Next.js เลยมี output mode ชื่อ <code>standalone</code> ที่ trace เฉพาะไฟล์ที่ build จริงต้องใช้ แล้วสร้างโฟลเดอร์ <code>.next/standalone</code> ที่รันได้เองโดยไม่ต้อง <code>npm install</code> ซ้ำ พร้อม <code>server.js</code> ตัวเล็กๆ ที่ใช้แทน <code>next start</code></p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>next.config.js</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">module.exports</span> = {
+  <span class="tok-n">output</span>: <span class="tok-s">'standalone'</span>,
+}</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>output: 'standalone'</code></strong> — สั่งให้ Next.js สร้างโฟลเดอร์ <code>.next/standalone</code> ที่ deploy ได้โดยไม่ต้องมี node_modules หรือ npm install ซ้ำในเครื่องปลายทาง</li>
+    <li>โฟลเดอร์ที่ได้จะมี <code>server.js</code> ติดมาให้ ใช้รันแทน <code>next start</code> ได้เลยด้วยคำสั่ง <code>node .next/standalone/server.js</code></li>
+    <li>ข้อควรระวัง — mode นี้ <strong>ไม่</strong> copy โฟลเดอร์ <code>public/</code> และ <code>.next/static</code> ให้อัตโนมัติ ต้อง copy เพิ่มเองเสมอ (จุดนี้คนพลาดบ่อยมาก แล้วงงว่าทำไมรูปกับ CSS หายหมด)</li>
+    <li>ปรับ port/host ได้ผ่าน environment variable ตอนรัน เช่น <code>PORT=8080 HOSTNAME=0.0.0.0 node server.js</code> — สำคัญมากเวลารันใน container ที่ default HOSTNAME เป็น <code>localhost</code> จะรับ traffic จากนอก container ไม่ได้</li>
+  </ol>
+</div>
+
+<table>
+  <thead><tr><th>โหมด</th><th>ต้องมี node_modules ตอนรัน</th><th>ขนาด image โดยประมาณ</th><th>เหมาะกับ</th></tr></thead>
+  <tbody>
+    <tr><td>Default build (<code>next start</code>)</td><td>ต้องมี</td><td>ใหญ่ (node_modules เต็ม)</td><td>รันบนเครื่องเดียว ไม่ใช่ container</td></tr>
+    <tr><td><code>output: 'standalone'</code></td><td>ไม่ต้อง</td><td>เล็กกว่ามาก (trace เฉพาะที่ใช้จริง)</td><td>Docker / Kubernetes (ทางที่ Next.js แนะนำอย่างเป็นทางการ)</td></tr>
+  </tbody>
+</table>
+
+<h3>(b) Dockerfile แบบ 3-stage</h3>
+
+<p>ทีนี้พอมี standalone output แล้ว ขั้นต่อไปคือห่อมันด้วย Dockerfile ที่แยก stage ชัดเจน — stage ติดตั้ง dependency, stage build, และ stage runner ที่เอาเฉพาะของที่จำเป็นไปวิ่งจริง จะได้ image เล็กและไม่พก build tool ติดไปโดยไม่จำเป็น</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>Dockerfile</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-k">ARG</span> NODE_VERSION=<span class="tok-s">20-slim</span>
+<span class="tok-k">FROM</span> node:${NODE_VERSION} <span class="tok-k">AS</span> dependencies
+<span class="tok-k">WORKDIR</span> /app
+<span class="tok-k">COPY</span> package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
+<span class="tok-k">RUN</span> --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/usr/local/share/.cache/yarn \
+    --mount=type=cache,target=/root/.local/share/pnpm/store \
+  if [ -f package-lock.json ]; then \
+    npm ci --no-audit --no-fund; \
+  elif [ -f yarn.lock ]; then \
+    corepack enable yarn && yarn install --frozen-lockfile --production=false; \
+  elif [ -f pnpm-lock.yaml ]; then \
+    corepack enable pnpm && pnpm install --frozen-lockfile; \
+  else \
+    echo <span class="tok-s">"No lockfile found."</span> && exit 1; \
+  fi
+
+<span class="tok-k">FROM</span> node:${NODE_VERSION} <span class="tok-k">AS</span> builder
+<span class="tok-k">WORKDIR</span> /app
+<span class="tok-k">COPY</span> --from=dependencies /app/node_modules ./node_modules
+<span class="tok-k">COPY</span> . .
+<span class="tok-k">ENV</span> NODE_ENV=<span class="tok-s">production</span>
+<span class="tok-k">RUN</span> if [ -f package-lock.json ]; then npm run build; \
+  elif [ -f yarn.lock ]; then corepack enable yarn && yarn build; \
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm build; \
+  else echo <span class="tok-s">"No lockfile found."</span> && exit 1; fi
+
+<span class="tok-k">FROM</span> node:${NODE_VERSION} <span class="tok-k">AS</span> runner
+<span class="tok-k">WORKDIR</span> /app
+<span class="tok-k">ENV</span> NODE_ENV=<span class="tok-s">production</span>
+<span class="tok-k">ENV</span> PORT=<span class="tok-f">3000</span>
+<span class="tok-k">ENV</span> HOSTNAME=<span class="tok-s">"0.0.0.0"</span>
+<span class="tok-k">COPY</span> --from=builder --chown=node:node /app/public ./public
+<span class="tok-k">RUN</span> mkdir .next && chown node:node .next
+<span class="tok-k">COPY</span> --from=builder --chown=node:node /app/.next/standalone ./
+<span class="tok-k">COPY</span> --from=builder --chown=node:node /app/.next/static ./.next/static
+<span class="tok-k">USER</span> node
+<span class="tok-k">EXPOSE</span> <span class="tok-f">3000</span>
+<span class="tok-k">CMD</span> [<span class="tok-s">"node"</span>, <span class="tok-s">"server.js"</span>]</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>stage <code>dependencies</code></strong> — ติดตั้ง package ตาม lockfile ที่เจอ (npm/yarn/pnpm) พร้อม cache mount ของ BuildKit เพื่อให้ rebuild ครั้งถัดไปเร็วขึ้น (ต้องเปิด BuildKit ก่อนถึงจะใช้ <code>--mount=type=cache</code> ได้)</li>
+    <li><strong>stage <code>builder</code></strong> — copy node_modules จาก stage ก่อนหน้า แล้ว copy source ทั้งหมดมา <code>npm run build</code> ซึ่งจะสร้าง <code>.next/standalone</code> และ <code>.next/static</code> ตามที่คุยไปใน (a)</li>
+    <li><strong>stage <code>runner</code></strong> — เป็น stage สุดท้ายที่ image จริงจะถูกสร้างจาก stage นี้เท่านั้น มันไม่พก devDependency หรือ source code เต็มไปด้วย เอาเฉพาะ <code>public/</code>, <code>.next/standalone</code>, <code>.next/static</code> เท่านั้น</li>
+    <li><strong><code>COPY --chown=node:node</code></strong> — copy พร้อม set owner เป็น user <code>node</code> (ไม่ใช่ root) ตั้งแต่ตอน copy เลย จะได้ไม่ต้อง chown ทีหลังซึ่งเปลือง layer</li>
+    <li><strong><code>USER node</code></strong> — รัน process ด้วย non-root user ตาม security best practice ของ container</li>
+    <li><strong><code>CMD ["node", "server.js"]</code></strong> — รัน server.js ที่ standalone output สร้างให้ แทนที่จะเป็น <code>next start</code></li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 เรื่อง NODE_VERSION</p>
+  <p style="margin:0">Dockerfile ตัวนี้มาจาก official example ของ Next.js repo (branch canary) ที่ pin <code>NODE_VERSION=20-slim</code> ไว้เป็นค่าเริ่มต้น เวอร์ชันนี้อาจขยับตามเวลา แนะนำให้เช็คเวอร์ชัน Node ที่ project จริงต้องการ แล้ว override ผ่าน <code>--build-arg NODE_VERSION=...</code> แทนการแก้ไฟล์ตรงๆ</p>
+</div>
+
+<h3>(c) Deployment — สั่ง Kubernetes ว่า Pod ต้องวิ่งยังไง</h3>
+
+<p>มี image พร้อมแล้ว ทีนี้ต้องบอก Kubernetes ว่าจะรัน image นี้กี่ตัว ใช้ resource เท่าไหร่ เช็ค health ยังไง และเอา config/secret เข้ามาทางไหน — นี่คือ field ที่ทีมส่วนใหญ่มักจะลืมใส่ตอนเริ่มต้น แล้วมาเจอปัญหาตอน production จริง</p>
+
+<div class="callout warn" data-reveal="fade-up">
+  <p class="callout-title">⚠️ YAML นี้เป็นของที่เราประกอบเอง</p>
+  <p style="margin:0">YAML ด้านล่างเป็น composite ที่บทความนี้ประกอบขึ้นเอง โดยรวม field ที่ถูก document แยกกันในหลายหน้าของ Kubernetes docs (Deployment fields, probe fields, resources fields, envFrom pattern) เข้าเป็น manifest เดียวที่ใช้งานได้จริง — ไม่ใช่การ quote จากหน้า doc เดียวแบบคำต่อคำ แนะนำให้เทียบกับ API reference ของแต่ละ field อีกทีก่อนเอาไปใช้ production จริง</p>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>deployment.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">apps/v1</span>
+<span class="tok-n">kind</span>: <span class="tok-s">Deployment</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">nextjs-app</span>
+  <span class="tok-n">labels</span>:
+    <span class="tok-n">app</span>: <span class="tok-s">nextjs-app</span>
+<span class="tok-n">spec</span>:
+  <span class="tok-n">replicas</span>: <span class="tok-f">3</span>
+  <span class="tok-n">selector</span>:
+    <span class="tok-n">matchLabels</span>:
+      <span class="tok-n">app</span>: <span class="tok-s">nextjs-app</span>
+  <span class="tok-n">template</span>:
+    <span class="tok-n">metadata</span>:
+      <span class="tok-n">labels</span>:
+        <span class="tok-n">app</span>: <span class="tok-s">nextjs-app</span>
+    <span class="tok-n">spec</span>:
+      <span class="tok-n">containers</span>:
+      - <span class="tok-n">name</span>: <span class="tok-s">nextjs-app</span>
+        <span class="tok-n">image</span>: <span class="tok-s">myregistry/nextjs-app:1.0.0</span>
+        <span class="tok-n">ports</span>:
+        - <span class="tok-n">containerPort</span>: <span class="tok-f">3000</span>
+        <span class="tok-n">resources</span>:
+          <span class="tok-n">requests</span>:
+            <span class="tok-n">cpu</span>: <span class="tok-s">"100m"</span>
+            <span class="tok-n">memory</span>: <span class="tok-s">"128Mi"</span>
+          <span class="tok-n">limits</span>:
+            <span class="tok-n">cpu</span>: <span class="tok-s">"500m"</span>
+            <span class="tok-n">memory</span>: <span class="tok-s">"512Mi"</span>
+        <span class="tok-n">readinessProbe</span>:
+          <span class="tok-n">httpGet</span>:
+            <span class="tok-n">path</span>: <span class="tok-s">/api/health</span>
+            <span class="tok-n">port</span>: <span class="tok-f">3000</span>
+          <span class="tok-n">initialDelaySeconds</span>: <span class="tok-f">5</span>
+          <span class="tok-n">periodSeconds</span>: <span class="tok-f">10</span>
+          <span class="tok-n">timeoutSeconds</span>: <span class="tok-f">2</span>
+          <span class="tok-n">failureThreshold</span>: <span class="tok-f">3</span>
+        <span class="tok-n">livenessProbe</span>:
+          <span class="tok-n">httpGet</span>:
+            <span class="tok-n">path</span>: <span class="tok-s">/api/health</span>
+            <span class="tok-n">port</span>: <span class="tok-f">3000</span>
+          <span class="tok-n">initialDelaySeconds</span>: <span class="tok-f">15</span>
+          <span class="tok-n">periodSeconds</span>: <span class="tok-f">20</span>
+          <span class="tok-n">timeoutSeconds</span>: <span class="tok-f">2</span>
+          <span class="tok-n">failureThreshold</span>: <span class="tok-f">3</span>
+        <span class="tok-n">envFrom</span>:
+        - <span class="tok-n">configMapRef</span>:
+            <span class="tok-n">name</span>: <span class="tok-s">nextjs-config</span>
+        - <span class="tok-n">secretRef</span>:
+            <span class="tok-n">name</span>: <span class="tok-s">nextjs-secrets</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>spec.replicas: 3</code></strong> — บอกให้รัน Pod พร้อมกัน 3 ตัว ป้องกันจุดเดียวล่มทั้งระบบ (single point of failure)</li>
+    <li><strong><code>selector.matchLabels</code> / <code>template.metadata.labels</code></strong> — ต้องตรงกันเป๊ะ Deployment ใช้ label นี้ค้นหาว่า Pod ตัวไหนเป็นของตัวเอง</li>
+    <li><strong><code>resources.requests</code></strong> — ปริมาณ CPU/memory ขั้นต่ำที่ scheduler ใช้ตัดสินใจว่าจะวาง Pod ลง node ไหน</li>
+    <li><strong><code>resources.limits</code></strong> — เพดานสูงสุดที่ container ห้ามใช้เกิน ถ้าใช้ memory เกิน limit จะโดน OOMKill</li>
+    <li><strong><code>readinessProbe</code></strong> — เช็คว่า Pod พร้อมรับ traffic หรือยัง ถ้ายังไม่ผ่าน (status ไม่อยู่ในช่วง 200-399) Service จะไม่ส่ง traffic เข้ามาที่ Pod นี้</li>
+    <li><strong><code>livenessProbe</code></strong> — เช็คว่า process ยังมีชีวิตอยู่ไหม ถ้า fail ครบ <code>failureThreshold</code> ครั้ง Kubernetes จะ restart container ให้อัตโนมัติ</li>
+    <li><strong><code>initialDelaySeconds</code></strong> — เวลารอก่อนเริ่มเช็ค probe ครั้งแรก กันไม่ให้ app ที่ยัง boot ไม่เสร็จโดนตัดสินว่า fail ตั้งแต่ยังไม่ทันเริ่ม</li>
+    <li><strong><code>envFrom</code></strong> — ดึง key ทั้งหมดจาก ConfigMap และ Secret มาเป็น environment variable ให้ container โดยอัตโนมัติ (รายละเอียดในหัวข้อ (e))</li>
+  </ol>
+</div>
+
+<h3>(d) Service + Ingress — เปิดทางให้ traffic เข้าถึง Pod</h3>
+
+<p>Pod แต่ละตัวมี IP ที่เปลี่ยนไปเรื่อยๆ ตาม restart ดังนั้นเราต้องมี Service เป็นจุดคงที่ให้ traffic เข้ามาหา แล้วมี Ingress เป็นประตูหน้าบ้านที่ map domain/path เข้า Service อีกที</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>service.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-n">kind</span>: <span class="tok-s">Service</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">nextjs-app</span>
+<span class="tok-n">spec</span>:
+  <span class="tok-n">selector</span>:
+    <span class="tok-n">app</span>: <span class="tok-s">nextjs-app</span>
+  <span class="tok-n">ports</span>:
+  - <span class="tok-n">port</span>: <span class="tok-f">80</span>
+    <span class="tok-n">targetPort</span>: <span class="tok-f">3000</span></code></pre>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ingress.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">networking.k8s.io/v1</span>
+<span class="tok-n">kind</span>: <span class="tok-s">Ingress</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">minimal-ingress</span>
+<span class="tok-n">spec</span>:
+  <span class="tok-n">ingressClassName</span>: <span class="tok-s">nginx-example</span>
+  <span class="tok-n">rules</span>:
+  - <span class="tok-n">http</span>:
+      <span class="tok-n">paths</span>:
+      - <span class="tok-n">path</span>: <span class="tok-s">/testpath</span>
+        <span class="tok-n">pathType</span>: <span class="tok-s">Prefix</span>
+        <span class="tok-n">backend</span>:
+          <span class="tok-n">service</span>:
+            <span class="tok-n">name</span>: <span class="tok-s">test</span>
+            <span class="tok-n">port</span>:
+              <span class="tok-n">number</span>: <span class="tok-f">80</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>Service <code>selector.app: nextjs-app</code></strong> — ต้องตรงกับ label ของ Pod ใน Deployment ไม่งั้น Service จะหา Pod ปลายทางไม่เจอเลย (endpoint ว่างเปล่า)</li>
+    <li><strong><code>port</code> vs <code>targetPort</code></strong> — <code>port: 80</code> คือ port ที่ Service เปิดให้เรียกจากภายใน cluster ส่วน <code>targetPort: 3000</code> คือ port จริงที่ container ฟังอยู่ (ตรงกับ <code>containerPort</code> ใน Deployment)</li>
+    <li><strong>Ingress <code>ingressClassName: nginx-example</code></strong> — บอกว่าจะให้ Ingress controller ตัวไหนเป็นคนดูแล rule นี้ ถ้าไม่ใส่ต้องมี default IngressClass ตั้งไว้ในคลัสเตอร์อยู่แล้ว</li>
+    <li><strong><code>pathType: Prefix</code></strong> — จับคู่ path แบบ prefix เช่น <code>/testpath</code> จะครอบคลุม <code>/testpath/anything</code> ด้วย</li>
+    <li><strong><code>backend.service.name</code> / <code>port.number</code></strong> — ชี้ไปที่ Service ที่สร้างไว้ด้านบน ต้องเปลี่ยนชื่อให้ตรงกับ Service จริง (ในตัวอย่าง official เป็นชื่อ <code>test</code> ต้องแก้เป็น <code>nextjs-app</code> เวลาใช้จริง)</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 Ingress vs Gateway API</p>
+  <p style="margin:0">Kubernetes docs เวอร์ชันปัจจุบันแนะนำให้โปรเจกต์ใหม่พิจารณาใช้ <strong>Gateway API</strong> แทน Ingress เพราะยืดหยุ่นกว่าและเป็นทิศทางที่ ecosystem กำลังไป แต่บทความนี้ยังใช้ Ingress เป็นหลักเพราะ production setup ส่วนใหญ่ในปัจจุบันยังวิ่งบน Ingress อยู่ และ ecosystem ของ controller (nginx, traefik ฯลฯ) ยังโตกว่ามาก — ถ้าเริ่มโปรเจกต์ใหม่จริงๆ แนะนำให้อ่านเรื่อง Gateway API เพิ่มเติมประกอบการตัดสินใจ</p>
+</div>
+
+<h3>(e) ConfigMap และ Secret — แยก config ออกจาก image</h3>
+
+<p>อย่า hardcode ค่าอย่าง API URL หรือ database connection string ลงใน image เด็ดขาด เพราะทุกครั้งที่ค่าเปลี่ยนจะต้อง build image ใหม่ ConfigMap กับ Secret คือ object ของ Kubernetes ที่ให้เราแยกค่าพวกนี้ออกมา แล้วฉีดเข้า Pod ตอน runtime แทน</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>configmap.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-n">kind</span>: <span class="tok-s">ConfigMap</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">nextjs-config</span>
+<span class="tok-n">data</span>:
+  <span class="tok-n">NEXT_PUBLIC_API_URL</span>: <span class="tok-s">"https://api.example.com"</span>
+  <span class="tok-n">NODE_ENV</span>: <span class="tok-s">"production"</span></code></pre>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>secret.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-n">kind</span>: <span class="tok-s">Secret</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">nextjs-secrets</span>
+<span class="tok-n">type</span>: <span class="tok-s">Opaque</span>
+<span class="tok-n">data</span>:
+  <span class="tok-n">DATABASE_URL</span>: <span class="tok-s">cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIvbmFtZQ==</span></code></pre>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>deployment.yaml (ส่วน envFrom)</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">envFrom</span>:
+  - <span class="tok-n">configMapRef</span>:
+      <span class="tok-n">name</span>: <span class="tok-s">nextjs-config</span>
+  - <span class="tok-n">secretRef</span>:
+      <span class="tok-n">name</span>: <span class="tok-s">nextjs-secrets</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>ConfigMap <code>data</code></strong> — เก็บค่าที่ไม่ sensitive เช่น URL หรือ flag ต่างๆ เป็น plain text ธรรมดา</li>
+    <li><strong>Secret <code>type: Opaque</code></strong> — ค่า default ของ Secret ทั่วไปที่ไม่มีรูปแบบเฉพาะ (ต่างจาก type อื่นเช่น <code>kubernetes.io/tls</code>)</li>
+    <li><strong>Secret <code>data.DATABASE_URL</code></strong> — ค่าต้อง encode เป็น base64 เสมอ (ในตัวอย่างคือ <code>postgres://user:pass@db/name</code> ที่ผ่าน <code>base64</code> มาแล้ว) — <strong>base64 ไม่ใช่การเข้ารหัส</strong> เป็นแค่ encoding ใครมี access อ่าน Secret ก็ decode กลับเป็น plain text ได้ทันที ต้องพึ่ง RBAC หรือเครื่องมือเช่น sealed-secrets/external-secrets ช่วยเพิ่มชั้นความปลอดภัย</li>
+    <li><strong><code>envFrom.configMapRef.name</code> / <code>secretRef.name</code></strong> — สั่งให้ทุก key ใน ConfigMap และ Secret ถูกแปลงเป็น environment variable ให้ container โดยอัตโนมัติ ไม่ต้อง list ทีละตัวด้วย <code>env</code></li>
+  </ol>
+</div>
+
+<h3>(f) HorizontalPodAutoscaler — scale ตาม load อัตโนมัติ</h3>
+
+<p>ตั้ง <code>replicas: 3</code> แบบตายตัวไปตลอดก็ใช้ได้ในวันธรรมดา แต่พอ traffic พุ่งตอน campaign หรือช่วง peak จะไม่พอ HorizontalPodAutoscaler (HPA) คือ object ที่คอย monitor resource usage แล้วเพิ่ม/ลดจำนวน replicas ให้เองอัตโนมัติ</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># สร้าง HPA แบบ imperative command เดียวจบ</span>
+kubectl autoscale deployment nextjs-app --cpu=<span class="tok-f">50</span>% --min=<span class="tok-f">2</span> --max=<span class="tok-f">10</span></code></pre>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 YAML ด้านล่างมาจาก generation ไม่ใช่ verbatim quote 100%</p>
+  <p style="margin:0">รูปทรงของ <code>metrics:</code> block ด้านล่างตรงกับ public API shape ของ <code>autoscaling/v2</code> ที่รู้จักกันทั่วไป แต่ในการค้นคว้าครั้งนี้ไม่ได้ capture มาแบบคำต่อคำจากหน้า doc เดียว วิธีที่แนะนำจริงๆ คือรัน <code>kubectl autoscale</code> ตามคำสั่งด้านบนก่อน แล้ว export YAML จริงออกมาด้วย <code>kubectl get hpa nextjs-app -o yaml</code> เพื่อความชัวร์ 100% ว่า field ตรงกับเวอร์ชันคลัสเตอร์ที่ใช้อยู่</p>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>hpa.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">autoscaling/v2</span>
+<span class="tok-n">kind</span>: <span class="tok-s">HorizontalPodAutoscaler</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">nextjs-app</span>
+<span class="tok-n">spec</span>:
+  <span class="tok-n">scaleTargetRef</span>:
+    <span class="tok-n">apiVersion</span>: <span class="tok-s">apps/v1</span>
+    <span class="tok-n">kind</span>: <span class="tok-s">Deployment</span>
+    <span class="tok-n">name</span>: <span class="tok-s">nextjs-app</span>
+  <span class="tok-n">minReplicas</span>: <span class="tok-f">2</span>
+  <span class="tok-n">maxReplicas</span>: <span class="tok-f">10</span>
+  <span class="tok-n">metrics</span>:
+  - <span class="tok-n">type</span>: <span class="tok-s">Resource</span>
+    <span class="tok-n">resource</span>:
+      <span class="tok-n">name</span>: <span class="tok-s">cpu</span>
+      <span class="tok-n">target</span>:
+        <span class="tok-n">type</span>: <span class="tok-s">Utilization</span>
+        <span class="tok-n">averageUtilization</span>: <span class="tok-f">50</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>kubectl autoscale deployment nextjs-app --cpu=50% --min=2 --max=10</code></strong> — วิธี imperative สร้าง HPA ให้เล็งไปที่ Deployment ชื่อ nextjs-app โดยตรง สั้นและเร็วเหมาะกับตอน demo หรือ debug</li>
+    <li><strong><code>scaleTargetRef</code></strong> — ชี้ว่า HPA นี้จะควบคุม replicas ของ workload ตัวไหน (ในที่นี้คือ Deployment ชื่อ nextjs-app ตัวเดียวกับที่เขียนไว้ในหัวข้อ (c))</li>
+    <li><strong><code>minReplicas</code> / <code>maxReplicas</code></strong> — กำหนดขอบเขตล่าง-บนของจำนวน Pod ห้ามลดต่ำกว่า 2 และห้ามเกิน 10 ไม่ว่า load จะขึ้นแรงแค่ไหน</li>
+    <li><strong><code>metrics[0].resource.name: cpu</code></strong> — ใช้ CPU utilization เป็นตัวชี้วัดหลักในการตัดสินใจ scale (ยังผูก metric อื่นเพิ่มได้ เช่น memory หรือ custom metric)</li>
+    <li><strong><code>target.averageUtilization: 50</code></strong> — ถ้า CPU เฉลี่ยของ Pod ทั้งหมดเกิน 50% ของ <code>resources.requests.cpu</code> ที่ตั้งไว้ใน Deployment, HPA จะเพิ่ม replicas ให้เอง</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 HPA ต้องพึ่ง resources.requests</p>
+  <p style="margin:0">HPA คำนวณ % utilization เทียบกับค่า <code>resources.requests.cpu</code> ที่ตั้งไว้ในหัวข้อ (c) ถ้าลืมตั้ง requests ไว้ HPA จะไม่มีฐานให้คำนวณ แล้วจะ scale ไม่ทำงานเลย นี่คือเหตุผลที่ resources กับ HPA ต้องมองคู่กันเสมอ</p>
+</div>
+
+<div class="speech">
+  <div class="who">🙋</div>
+  <div class="bubble"><span class="name">นาย ข.</span>เขียน YAML พวกนี้เองทีละไฟล์เยอะมากเลยครับพี่ ก. มีวิธีจัดการให้เป็นระบบกว่านี้ไหม โดยเฉพาะตอนต้อง deploy หลาย environment</div>
+</div>
+
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>มีสิ ไปดูกันต่อบทหน้าเลย — เครื่องมือจัดการ manifest สองตัวที่วงการ K8s ใช้กันเป็นมาตรฐาน คือ Helm กับ Kustomize</div>
+</div>
+
+</section>
+
+<section class="chapter" id="tooling">
+
+<p class="ch-kicker">🧰 บทที่ 8</p>
+<h2>Helm กับ Kustomize — จัดการ manifest หลาย environment โดยไม่ต้อง copy-paste YAML</h2>
+<p class="lede">บทที่แล้วเราเขียน YAML มือทีละไฟล์ บทนี้มาดูว่าวงการ Kubernetes ใช้เครื่องมืออะไรจัดการ manifest จำนวนมากให้เป็นระบบ โดยเฉพาะตอนต้อง deploy environment เดียวกันไปหลายที่ (dev, staging, production) ที่ค่าต่างกันนิดหน่อยแต่โครงสร้างเหมือนกัน</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>ตอนนี้ผม copy โฟลเดอร์ YAML แล้วแก้ทีละ field เพื่อ deploy dev กับ production แยกกัน... รู้สึกว่ามันจะพังเมื่อไหร่ก็ได้ครับ</div>
+</div>
+
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>นั่นแหละปัญหาคลาสสิก ทางแก้มีสองสาย — Helm ใช้ template engine + values file ส่วน Kustomize ใช้แนวคิด base + overlay แบบไม่มี templating เลย ลองดูทั้งคู่แล้วเลือกที่เข้ากับทีมแกที่สุด</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> Helm คือ package manager ของ Kubernetes ที่ใช้ template + values ผลิต manifest หลายชุดจากต้นแบบเดียว ส่วน Kustomize คือเครื่องมือที่ patch YAML ธรรมดาซ้อนกันเป็นชั้นๆ โดยไม่ต้องเขียน template syntax เลย — สองแนวคิดนี้แก้ปัญหาเดียวกันคนละวิธี</p>
+
+<table>
+  <thead><tr><th></th><th>Helm</th><th>Kustomize</th></tr></thead>
+  <tbody>
+    <tr><td>แนวคิดหลัก</td><td>Template engine + values file (package manager)</td><td>Patch/overlay บน YAML ธรรมดา ไม่มี templating</td></tr>
+    <tr><td>Syntax</td><td>Go template ผสมใน YAML (<code>{{ .Values.x }}</code>)</td><td>YAML ล้วนๆ ไม่มี syntax แปลกใหม่</td></tr>
+    <tr><td>ติดตั้งเพิ่ม</td><td>ต้องติดตั้ง Helm CLI แยก</td><td>ฝังอยู่ใน <code>kubectl</code> แล้วตั้งแต่ v1.14</td></tr>
+    <tr><td>แจกจ่าย/แชร์</td><td>แพ็กเป็น chart, publish ผ่าน repo หรือ OCI registry ได้</td><td>เป็นแค่ไดเรกทอรี YAML ไม่มีระบบ package</td></tr>
+    <tr><td>Rollback</td><td>มี release history ในตัว (<code>helm rollback</code>)</td><td>ไม่มี ต้องพึ่ง git หรือ CI ภายนอก</td></tr>
+  </tbody>
+</table>
+
+<h3>Helm — package manager ของ Kubernetes</h3>
+
+<p>Helm มองทุกชุด manifest เป็น "chart" หนึ่งชุด แล้วให้ values file เป็นตัวกำหนดค่าที่ต่างกันในแต่ละ environment โดยไม่ต้องแก้ template</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># สร้าง chart โครงสร้างมาตรฐานให้อัตโนมัติ</span>
+helm create nextjs-app</code></pre>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>nextjs-app/ (โครงสร้างจาก helm create)</span><button class="copy-btn">copy</button></div>
+  <pre><code>nextjs-app/
+├── .helmignore
+├── Chart.yaml
+├── values.yaml
+├── charts/
+└── templates/
+    └── tests/</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>Chart.yaml</code></strong> — metadata ของ chart field ที่ต้องมีคือ <code>apiVersion</code>, <code>name</code>, <code>version</code> ส่วน <code>appVersion</code>, <code>description</code>, <code>dependencies</code>, <code>maintainers</code> เป็น optional</li>
+    <li><strong><code>values.yaml</code></strong> — ค่า default ทั้งหมดของ chart เช่น จำนวน replicas, image tag, resources — เวลา deploy environment ไหนก็ override ค่าพวกนี้ผ่าน <code>-f</code> หรือ <code>--set</code></li>
+    <li><strong><code>charts/</code></strong> — เก็บ sub-chart (dependency chart อื่นที่ chart นี้พึ่งพา)</li>
+    <li><strong><code>templates/</code></strong> — เก็บไฟล์ YAML แบบ template (Deployment, Service, Ingress ฯลฯ จากบทที่แล้ว) ที่แทรก <code>{{ .Values.xxx }}</code> เพื่อดึงค่าจาก values.yaml</li>
+    <li>โครงสร้างแบบเต็มของ chart จริงยังมี <code>LICENSE</code>, <code>README.md</code>, <code>values.schema.json</code> (validate ค่า values), <code>crds/</code> และ <code>templates/NOTES.txt</code> (ข้อความแสดงหลัง install สำเร็จ) เพิ่มได้ตามต้องการ</li>
+  </ol>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># pattern มาตรฐานสำหรับ deploy ผ่าน CI/CD — idempotent</span>
+<span class="tok-c"># ถ้ายังไม่เคย install จะ install ให้ ถ้ามีอยู่แล้วจะ upgrade ให้</span>
+helm upgrade nextjs-app ./nextjs-app --install
+
+<span class="tok-c"># ตัวอย่างอื่นจาก doc — ระบุ values file หรือ --set ค่าเดี่ยวๆ</span>
+helm upgrade -f myvalues.yaml redis ./redis
+helm upgrade --set foo=bar redis ./redis</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>helm upgrade [RELEASE] [CHART] --install</code></strong> — flag <code>--install</code> (หรือ <code>-i</code>) ทำให้คำสั่งนี้ idempotent: "ถ้ายังไม่มี release ชื่อนี้อยู่ ให้ install ใหม่แทน" นี่คือเหตุผลที่ pipeline CI/CD แทบทุกที่ใช้คำสั่งเดียวนี้ทั้งตอน deploy ครั้งแรกและ deploy ซ้ำ ไม่ต้องเขียน logic แยก install/upgrade เอง</li>
+    <li><strong><code>-f myvalues.yaml</code></strong> — override ค่าจาก values.yaml เริ่มต้นด้วยไฟล์ values แยกต่างหาก เหมาะกับ environment ที่มีค่าต่างกันเยอะ</li>
+    <li><strong><code>--set foo=bar</code></strong> — override ค่าเดี่ยวๆ ผ่าน command line เหมาะกับตอน debug หรือค่าที่เปลี่ยนบ่อยเช่น image tag</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 Helm 4 / OCI vs classic repo add</p>
+  <p style="margin:0">เอกสารของ Helm ปัจจุบันปรับ quickstart หลักไปใช้ Helm 4 กับ OCI registry เป็นทางหลักแล้ว (เช่น <code>helm install my-podinfo oci://ghcr.io/...</code>) แต่ flow แบบคลาสสิกที่ใช้ <code>helm repo add</code> ตามด้วย <code>helm install</code> จาก repo index ก็ยังใช้งานได้และยัง document อยู่เต็มรูปแบบ บทความนี้เลือกอธิบายด้วย flow แบบ repo-based คลาสสิกเพราะยังเป็นวิธีที่ production ทีมส่วนใหญ่ใช้กันอยู่จริงในปัจจุบัน ถ้าทีมไหนพร้อมย้ายไป OCI registry ก็ทำได้เลย concept เรื่อง chart/values/release เหมือนกันทั้งหมด</p>
+</div>
+
+<h3>Kustomize — base + overlay แบบไม่มี templating</h3>
+
+<p>ถ้า Helm คือ "เขียน template แล้วแทนค่า" Kustomize คือแนวทางตรงข้าม — เขียน YAML ธรรมดาชุดเดียวเป็น "base" แล้วให้แต่ละ environment มี "overlay" ที่ patch เฉพาะส่วนที่ต่างจาก base เท่านั้น ไม่มี syntax แปลกปลอมปนอยู่ใน YAML เลย</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>nextjs-app/ (base + overlays)</span><button class="copy-btn">copy</button></div>
+  <pre><code>nextjs-app/
+├── base
+│   ├── deployment.yaml
+│   ├── kustomization.yaml
+│   └── service.yaml
+└── overlays
+    ├── dev
+    │   └── kustomization.yaml
+    └── production
+        └── kustomization.yaml</code></pre>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>base/kustomization.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">resources</span>:
+- deployment.yaml
+- service.yaml
+<span class="tok-n">configMapGenerator</span>:
+- <span class="tok-n">name</span>: <span class="tok-s">nextjs-config</span>
+  <span class="tok-n">files</span>:
+  - application.properties</code></pre>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>overlays/production/kustomization.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">namespace</span>: <span class="tok-s">production</span>
+<span class="tok-n">namePrefix</span>: <span class="tok-s">prod-</span>
+<span class="tok-n">labels</span>:
+  - <span class="tok-n">pairs</span>:
+      <span class="tok-n">env</span>: <span class="tok-s">production</span>
+    <span class="tok-n">includeSelectors</span>: <span class="tok-s">true</span>
+<span class="tok-n">commonAnnotations</span>:
+  <span class="tok-n">oncallPager</span>: <span class="tok-s">"800-555-1212"</span>
+<span class="tok-n">resources</span>:
+- ../../base</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>base/kustomization.yaml</code> → <code>resources</code></strong> — list ไฟล์ YAML ดิบๆ ที่เป็นต้นแบบร่วมของทุก environment (deployment.yaml, service.yaml จากบทที่แล้ว)</li>
+    <li><strong><code>configMapGenerator</code></strong> — สร้าง ConfigMap ให้อัตโนมัติจากไฟล์ (<code>application.properties</code>) แทนที่จะเขียน ConfigMap YAML เองแบบบทที่แล้ว</li>
+    <li><strong>overlay <code>resources: ../../base</code></strong> — overlay ไม่ copy YAML ของ base มาซ้ำ แค่ "อ้างอิง" กลับไปที่ base directory แล้ว patch ทับเฉพาะส่วนที่ต่าง</li>
+    <li><strong><code>namespace: production</code></strong> — inject namespace ให้ทุก resource ใน base โดยไม่ต้องแก้ไฟล์ต้นฉบับ</li>
+    <li><strong><code>namePrefix: prod-</code></strong> — เติม prefix หน้าชื่อทุก resource อัตโนมัติ เช่น Deployment ชื่อ nextjs-app จะกลายเป็น prod-nextjs-app</li>
+    <li><strong><code>labels</code> + <code>includeSelectors: true</code></strong> — เติม label <code>env: production</code> ให้ทุก resource และให้ label นี้มีผลกับ selector ด้วย (ไม่ใช่แค่ metadata เฉยๆ)</li>
+    <li><strong><code>commonAnnotations</code></strong> — เติม annotation เดียวกันให้ทุก resource เช่น เบอร์ oncall ของทีมที่ดูแล environment นี้</li>
+  </ol>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ดูผลลัพธ์ YAML ที่ประกอบเสร็จแล้วก่อน apply จริง</span>
+kubectl kustomize overlays/production
+
+<span class="tok-c"># apply overlay เข้าคลัสเตอร์ตรงๆ (มี kustomize built-in ใน kubectl ตั้งแต่ v1.14)</span>
+kubectl apply -k overlays/production</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong><code>kubectl kustomize &lt;dir&gt;</code></strong> — render YAML สุดท้ายออกมาดูเฉยๆ ไม่ apply ใช้ตอน review หรือ debug ว่า base + overlay รวมกันแล้วหน้าตาเป็นยังไง</li>
+    <li><strong><code>kubectl apply -k &lt;dir&gt;</code></strong> — flag <code>-k</code> (หรือ <code>--kustomize</code>) สั่งให้ kubectl render kustomization ในไดเรกทอรีนั้นแล้ว apply เข้าคลัสเตอร์ทันที ไม่ต้องติดตั้ง binary <code>kustomize</code> แยกเลยเพราะฝังอยู่ใน kubectl ตั้งแต่ v1.14 แล้ว (แม้ standalone CLI <code>kustomize build</code> ก็ยังนิยมใช้กันเหมือนกัน โดยเฉพาะตอนต้องการ feature เวอร์ชันใหม่กว่าที่ฝังใน kubectl)</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 เลือกยังไงดี</p>
+  <p style="margin:0">ถ้าทีมต้อง publish chart ให้คนอื่นใช้ต่อ หรือต้องการ release history/rollback ในตัว — Helm ตอบโจทย์กว่า ถ้าทีมอยากให้ YAML อ่านง่าย ไม่มี syntax แปลกปลอม และแค่ต้องการ manage ความต่างระหว่าง dev/staging/production — Kustomize เรียบง่ายกว่าเยอะ หลายทีมจริงๆ ใช้ทั้งคู่ผสมกัน เช่น Helm สำหรับ chart จาก third-party (Redis, Postgres) และ Kustomize สำหรับ manifest ของ app ตัวเองที่เขียนเอง</p>
+</div>
+
+<div class="speech">
+  <div class="who">🙋</div>
+  <div class="bubble"><span class="name">นาย ข.</span>เข้าใจละครับ งั้นสรุปว่าทั้งบทที่แล้วกับบทนี้คือ pipeline เต็มๆ ตั้งแต่ build image ไปจน deploy หลาย environment เลยใช่ไหมครับ</div>
+</div>
+
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>ใช่เลย ทีนี้เหลือแค่เอาทุกอย่างที่เรียนมาประกอบเป็น workflow เดียว ไปดูกันต่อบทหน้า</div>
+</div>
+
+</section>
+<section class="chapter" id="backup-dr">
+<p class="ch-kicker">🛟 บทที่ 9</p>
+<h2>Backup กับ Disaster Recovery: ทำไม Backup ที่ไม่เคย Restore ถึงยังไม่ใช่ Backup จริง</h2>
+<p class="lede">บทนี้พาไปดูการทำ backup สองชั้นที่ production cluster ทุกตัวต้องมี — ชั้น workload ด้วย Velero และชั้น control plane ด้วย etcd snapshot — พร้อมพาไปซ้อม restore จริงๆ เพราะไฟล์ backup ที่ไม่เคยถูกเอามากู้คืนสักครั้ง คือความเสี่ยงที่ซ่อนอยู่โดยไม่มีใครรู้</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>นาย ก. ครับ... ผมเผลอรัน <code>kubectl delete namespace production</code> ผิด environment ตอนนี้ Deployment, ConfigMap, Secret หายหมดเลยครับ แล้วเราไม่มี backup เก็บไว้เลย</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>...เห็นภาพเลยใช่ไหมครับ ว่าทำไมทุก production cluster ต้องมี Velero ติดตั้งไว้ตั้งแต่วันแรก ไม่ใช่ค่อยมาติดตั้งตอนพังแล้ว วันนี้เรามานั่งวางระบบ backup ที่กู้คืนได้จริงกัน</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> Velero ดูแล backup/restore ระดับ Kubernetes object และ Persistent Volume ส่วน etcd snapshot ดูแล backup ระดับ state ทั้งคลัสเตอร์ที่ control plane เก็บไว้ — เป็นคนละชั้นกัน และ production cluster ต้องมีทั้งคู่ ขาดตัวใดตัวหนึ่งไม่ได้</p>
+
+<table>
+<thead><tr><th>หัวข้อ</th><th>Velero</th><th>etcd snapshot</th></tr></thead>
+<tbody>
+<tr><td>ระดับที่ backup</td><td>Namespace / object level (Deployment, Service, PVC, ...)</td><td>Whole cluster state ที่เก็บใน etcd ทั้งหมด</td></tr>
+<tr><td>กู้คืนอะไรได้</td><td>แอปหรือ namespace ที่ถูกลบ/พังเฉพาะจุด</td><td>ทั้งคลัสเตอร์ตอน control plane พังหรือ etcd corrupt</td></tr>
+<tr><td>เหมาะกับสถานการณ์</td><td>ลบ namespace ผิด, ต้อง migrate namespace ไป cluster ใหม่</td><td>etcd disk พัง, upgrade แล้วพัง, ต้อง rebuild control plane</td></tr>
+<tr><td>เก็บไว้ที่ไหน</td><td>Object storage ที่ compatible กับ S3 (MinIO, Ceph RGW, Wasabi ฯลฯ)</td><td>ไฟล์ .db บน disk แยกต่างหาก (ควรก็อปออกไปเก็บนอกเครื่อง)</td></tr>
+</tbody>
+</table>
+
+<h3>ติดตั้ง Velero เข้ากับ S3-compatible storage</h3>
+<p>ทีนี้มาเริ่มจากชั้นแรกกันก่อน — Velero ใช้ object storage เป็นที่เก็บ backup ซึ่งไม่จำเป็นต้องเป็น AWS S3 จริงก็ได้ ใช้ MinIO, Ceph RGW หรือ Wasabi แทนก็ได้ทั้งนั้น เพราะ Velero ไม่มี provider แยกสำหรับ "generic S3" — ทุกตัวที่พูด S3 API ได้ ให้ใช้ <code>--provider aws</code> ร่วมกับ <code>velero-plugin-for-aws</code> แล้วชี้ endpoint เอาเองผ่าน <code>s3Url</code> กับ <code>s3ForcePathStyle</code></p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>credentials-velero</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-k">[default]</span>
+<span class="tok-n">aws_access_key_id</span> = <span class="tok-s">minio</span>
+<span class="tok-n">aws_secret_access_key</span> = <span class="tok-s">minio123</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>รูปแบบไฟล์</strong> — เป็น INI format แบบเดียวกับ AWS credentials file เพราะ Velero ใช้ <code>velero-plugin-for-aws</code> คุยกับ storage ไม่ว่า backend จริงจะเป็น MinIO หรืออะไรก็ตาม</li>
+    <li><strong>aws_access_key_id / aws_secret_access_key</strong> — ในตัวอย่างนี้ใช้ค่า default ของ MinIO (<code>minio</code> / <code>minio123</code>) ใน production จริงต้องเปลี่ยนเป็น credential ของ storage ที่ใช้งานจริง</li>
+  </ol>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-f">velero</span> install \
+    --provider <span class="tok-s">aws</span> \
+    --plugins <span class="tok-s">velero/velero-plugin-for-aws:v1.2.1</span> \
+    --bucket <span class="tok-s">velero</span> \
+    --secret-file <span class="tok-s">./credentials-velero</span> \
+    --use-volume-snapshots=<span class="tok-k">false</span> \
+    --backup-location-config region=minio,s3ForcePathStyle=<span class="tok-s">"true"</span>,s3Url=<span class="tok-s">http://minio.velero.svc:9000</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>--provider aws</strong> — ใช้ provider นี้เสมอสำหรับ storage backend ที่พูด S3 API แม้จะไม่ใช่ AWS จริงก็ตาม</li>
+    <li><strong>--plugins velero/velero-plugin-for-aws:v1.2.1</strong> — เวอร์ชันของ plugin ต้องเข้าคู่กับเวอร์ชัน Velero ที่ติดตั้ง ถ้า mismatch กันบ่อยครั้งจะ backup ไม่ผ่านแบบเงียบๆ</li>
+    <li><strong>--bucket velero</strong> — ชื่อ bucket ปลายทางที่สร้างไว้ล่วงหน้าใน storage</li>
+    <li><strong>--secret-file ./credentials-velero</strong> — ไฟล์ credential ที่เพิ่งสร้างด้านบน</li>
+    <li><strong>--use-volume-snapshots=false</strong> — ปิด native volume snapshot เพราะ MinIO ไม่รองรับ CSI snapshot ในตัวอย่างนี้ (ถ้า storage backend รองรับจริงค่อยเปิด)</li>
+    <li><strong>--backup-location-config</strong> — ระบุ <code>s3ForcePathStyle="true"</code> และ <code>s3Url</code> เพื่อบอก plugin ว่านี่คือ S3-compatible endpoint ไม่ใช่ AWS S3 จริง</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 เวอร์ชัน plugin ต้องคู่กับเวอร์ชัน Velero</p>
+  <p style="margin:0">ก่อนติดตั้งทุกครั้ง เช็ก compatibility matrix ของ <code>velero-plugin-for-aws</code> กับ Velero เวอร์ชันที่ใช้เสมอ ใส่เวอร์ชันผิดคู่กัน backup อาจสร้างไม่สำเร็จโดยไม่มี error ที่ชัดเจน</p>
+</div>
+
+<h3>สร้าง Backup และตั้ง Schedule</h3>
+<p>ติดตั้งเสร็จแล้ว ทีนี้มาสร้าง backup แบบ manual ครั้งแรกก่อน แล้วค่อยตั้งให้รันอัตโนมัติทุกวัน</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># สร้าง backup แบบ manual ครั้งเดียว แล้วรอจนเสร็จ</span>
+<span class="tok-f">velero</span> backup create <span class="tok-s">my-backup</span> --include-namespaces <span class="tok-s">production</span> --wait
+
+<span class="tok-c"># ตั้ง schedule ให้รันทุกวันตอนตี 3</span>
+<span class="tok-f">velero</span> schedule create <span class="tok-s">daily-backup</span> --schedule=<span class="tok-s">"0 3 * * *"</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>velero backup create my-backup</strong> — สร้าง backup ชื่อ <code>my-backup</code></li>
+    <li><strong>--include-namespaces production</strong> — จำกัดขอบเขต backup ให้เอาเฉพาะ namespace <code>production</code> ไม่ backup ทั้งคลัสเตอร์ทุกครั้งโดยไม่จำเป็น</li>
+    <li><strong>--wait</strong> — ให้ terminal ค้างรอจน backup เสร็จจริง แทนที่จะ return ทันทีแบบ async</li>
+    <li><strong>velero schedule create daily-backup</strong> — สร้าง schedule ชื่อ <code>daily-backup</code> ที่จะสร้าง backup ใหม่ตาม cron expression ให้อัตโนมัติ ไม่ต้องมานั่งรันมือทุกวัน</li>
+    <li><strong>--schedule="0 3 * * *"</strong> — cron expression มาตรฐาน หมายถึงรันทุกวันตอนตี 3</li>
+  </ol>
+</div>
+
+<div class="speech">
+  <div class="who">🙋‍♂️</div>
+  <div class="bubble"><span class="name">นาย ข.</span>งั้นตอนนี้เรามี backup รันทุกวันแล้ว จบเลยใช่ไหมครับ?</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>ยังไม่จบครับ นี่แหละจุดที่คนพลาดกันบ่อยที่สุด — <span class="mark">backup ที่ไม่เคยถูกเอามาลอง restore สักครั้ง ก็เหมือนไม่มี backup</span> เพราะเราไม่รู้เลยว่าไฟล์ backup มันใช้กู้คืนได้จริงหรือเปล่า จนกว่าจะถึงวันที่ต้องใช้จริง ซึ่งอาจสายเกินไป</div>
+</div>
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>อ๋อ... งั้นเรามาลองซ้อม restore กันเลยดีกว่าครับ จะได้รู้ว่าถ้าวันจริงมาถึง เรากู้ทันไหม</div>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># สร้าง restore จาก backup ที่มีอยู่ แล้วรอจนเสร็จ</span>
+<span class="tok-f">velero</span> restore create <span class="tok-s">my-restore</span> --from-backup <span class="tok-s">my-backup</span> --wait
+
+<span class="tok-c"># ดูรายละเอียดว่า restore สำเร็จไหม มี object ไหนติดปัญหาบ้าง</span>
+<span class="tok-f">velero</span> restore describe <span class="tok-s">my-restore</span>
+
+<span class="tok-c"># ดู log แบบละเอียด ถ้าต้องไล่ debug</span>
+<span class="tok-f">velero</span> restore logs <span class="tok-s">my-restore</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>velero restore create my-restore --from-backup my-backup</strong> — สั่งกู้คืนจาก backup ชื่อ <code>my-backup</code> เข้าเป็น restore job ชื่อ <code>my-restore</code></li>
+    <li><strong>--wait</strong> — เหมือนเดิม รอจนกู้เสร็จจริงก่อนคืน terminal</li>
+    <li><strong>velero restore describe my-restore</strong> — เช็กสถานะว่า Completed หรือ PartiallyFailed แล้วดูว่า warning/error เกิดกับ resource ไหนบ้าง — ขั้นตอนนี้ห้ามข้าม เพราะ restore อาจ "เสร็จ" แต่ไม่ได้แปลว่า "ครบ"</li>
+    <li><strong>velero restore logs my-restore</strong> — ใช้เวลาต้องไล่ debug ว่าทำไม object บางตัวถึง restore ไม่ผ่าน</li>
+  </ol>
+</div>
+
+<div class="doodle-card accent" data-reveal="fade-up">
+  <strong>checklist ซ้อม restore ที่ทีมควรทำอย่างน้อยไตรมาสละครั้ง</strong>
+  <p style="margin:.5rem 0 0">restore ใส่ namespace ทดสอบแยกต่างหาก (ไม่ใช่ทับของจริง) → เช็กว่า Deployment/Service/ConfigMap/Secret มาครบ → เช็กว่าแอปรันขึ้นจริง ไม่ใช่แค่ resource ถูกสร้าง → จับเวลาทั้งกระบวนการไว้เป็น RTO จริงที่วัดได้ ไม่ใช่ตัวเลขที่เดาไว้ในเอกสาร</p>
+</div>
+
+<h3>แล้วถ้า control plane ทั้งคลัสเตอร์พังล่ะ Velero ช่วยได้ไหม</h3>
+<p>คำตอบคือไม่ครับ — Velero backup ที่ระดับ Kubernetes object ผ่าน API server เท่านั้น ถ้า etcd ซึ่งเป็นที่เก็บ state ทั้งหมดของคลัสเตอร์พังหรือ corrupt ไปเลย ต้องมี etcd snapshot แยกต่างหากถึงจะกู้คลัสเตอร์กลับมาได้ ในคลัสเตอร์ที่ตั้งด้วย kubeadm การ snapshot ต้องยิงตรงผ่าน <code>etcdctl</code> พร้อมชี้ TLS certificate ของ etcd เอง</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">ETCDCTL_API</span>=<span class="tok-f">3</span> <span class="tok-f">etcdctl</span> --endpoints=<span class="tok-s">https://127.0.0.1:2379</span> \
+  --cacert=<span class="tok-s">/etc/kubernetes/pki/etcd/ca.crt</span> \
+  --cert=<span class="tok-s">/etc/kubernetes/pki/etcd/server.crt</span> \
+  --key=<span class="tok-s">/etc/kubernetes/pki/etcd/server.key</span> \
+  snapshot save <span class="tok-s">/backup/etcd-snapshot.db</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>ETCDCTL_API=3</strong> — บังคับใช้ etcdctl API v3 ซึ่งเป็น API ปัจจุบันที่ etcd ใช้จริง</li>
+    <li><strong>--endpoints=https://127.0.0.1:2379</strong> — พอร์ตมาตรฐานของ etcd บน control plane node ที่รันคำสั่งนี้</li>
+    <li><strong>--cacert / --cert / --key</strong> — path มาตรฐานของ certificate ที่ kubeadm สร้างไว้ให้ตอน bootstrap คลัสเตอร์ ต้องชี้ทั้งสามตัวนี้ให้ครบ ไม่งั้น etcdctl จะต่อ TLS ไม่ผ่าน</li>
+    <li><strong>snapshot save /backup/etcd-snapshot.db</strong> — คำสั่งจริงที่สร้างไฟล์ snapshot ควรก็อปไฟล์นี้ออกไปเก็บนอกเครื่อง control plane ทันที เพราะถ้า disk เครื่องนี้พังพร้อมกับ etcd ไฟล์ backup ก็หายไปด้วย</li>
+  </ol>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-f">etcdutl</span> --data-dir <span class="tok-s">/var/lib/etcd-restore</span> snapshot restore <span class="tok-s">/backup/etcd-snapshot.db</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>etcdutl</strong> — เครื่องมือที่แนะนำให้ใช้ในปัจจุบันสำหรับ restore snapshot (ดู callout ด้านล่างว่าทำไมไม่ใช้ etcdctl)</li>
+    <li><strong>--data-dir /var/lib/etcd-restore</strong> — restore ไปยัง data directory ใหม่ ไม่ทับของเดิมตรงๆ เพื่อกันพลาด แล้วค่อยสลับ path ทีหลัง</li>
+    <li><strong>snapshot restore /backup/etcd-snapshot.db</strong> — ไฟล์ snapshot ที่ save ไว้จากขั้นตอนก่อนหน้า</li>
+    <li><strong>ก่อนรันจริง</strong> — ต้อง stop kube-apiserver ทุกตัวก่อน และต้อง restore state ให้ครบทุก etcd instance ในคลัสเตอร์ (ถ้าเป็น HA control plane หลายโหนด) ก่อนจะ restart อะไรทั้งนั้น ไม่งั้น state จะไม่ตรงกันระหว่างโหนด</li>
+  </ol>
+</div>
+
+<div class="callout warn" data-reveal="fade-up">
+  <p class="callout-title">⚠️ etcdctl snapshot restore เลิกใช้แล้ว</p>
+  <p style="margin:0">ตั้งแต่ etcd v3.5.x เป็นต้นมา คำสั่ง <code>etcdctl snapshot restore</code> ถูก deprecate แล้ว เครื่องมือที่แนะนำให้ใช้แทนคือ <code>etcdutl snapshot restore</code> ตามตัวอย่างด้านบน ถ้าเอกสารเก่าที่เจอยังสอน <code>etcdctl snapshot restore</code> อยู่ ให้เช็กเวอร์ชัน etcd ของคลัสเตอร์ก่อนว่าคำสั่งนั้นยังใช้ได้จริงไหม</p>
+</div>
+
+<p>ทีนี้เราวางระบบ backup ครบสองชั้นแล้ว — Velero คอยดูแลระดับ workload พร้อม schedule อัตโนมัติและซ้อม restore แล้วจริง ส่วน etcd snapshot คอยดูแลระดับ control plane ทั้งคลัสเตอร์ แต่มี backup ดีแค่ไหนก็ช่วยไม่ได้ ถ้าไม่มีใครรู้ตัวว่าระบบกำลังพังอยู่ตอนนี้เลย — บทต่อไปเรามาทำให้คลัสเตอร์ "พูดได้" ด้วย monitoring stack กัน</p>
+</section>
+
+<section class="chapter" id="monitoring">
+<p class="ch-kicker">📡 บทที่ 10</p>
+<h2>Monitoring Stack: Prometheus, Grafana, Loki ต่อกันยังไง แล้วต้องรู้อะไรก่อนติดตั้งจริง</h2>
+<p class="lede">บทนี้ว่าด้วยการติดตั้ง kube-prometheus-stack ให้เก็บ metrics จากทั้งคลัสเตอร์และแอป Next.js ของเราเอง การตั้ง alert rule ให้แจ้งเตือนอัตโนมัติ การโหลด Grafana dashboard แบบไม่ต้อง click มือ และการต่อ Loki เข้ามาเก็บ log ให้ค้นย้อนหลังได้</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>เมื่อคืนแอปล่มไปเกือบ 20 นาที ผมรู้ตอนที่ลูกค้าโทรมาบ่นครับ... ไม่มีอะไรเตือนผมเลยสักนิด</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>นั่นเพราะคลัสเตอร์เรายัง "ใบ้" อยู่ครับ ไม่มี metrics ไม่มี alert ไม่มี log ที่ค้นได้ — วันนี้เรามาต่อสาย monitoring ให้คลัสเตอร์พูดกับเราได้กัน ก่อนที่ลูกค้าจะต้องเป็นคนบอกเราอีกรอบ</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> kube-prometheus-stack คือ Helm chart ที่รวมทุกชิ้นส่วนของ monitoring ที่ต้องใช้ไว้ในการติดตั้งครั้งเดียว ไม่ต้องมานั่งประกอบเองทีละตัว</p>
+
+<table>
+<thead><tr><th>ชิ้นส่วน</th><th>ทำหน้าที่อะไร</th></tr></thead>
+<tbody>
+<tr><td>Prometheus Operator</td><td>จัดการ CRD อย่าง ServiceMonitor / PrometheusRule ให้ Prometheus config ตัวเองอัตโนมัติ</td></tr>
+<tr><td>Prometheus</td><td>เก็บ metrics แบบ time-series และประมวลผล alert rule</td></tr>
+<tr><td>Alertmanager</td><td>รับ alert จาก Prometheus แล้วจัดการ routing/grouping ไปแจ้งเตือนช่องทางต่างๆ</td></tr>
+<tr><td>Grafana</td><td>แสดงผล dashboard จาก metrics ที่เก็บไว้</td></tr>
+<tr><td>kube-state-metrics</td><td>แปลง state ของ Kubernetes object (Pod, Deployment, ...) ให้เป็น metrics</td></tr>
+<tr><td>node-exporter</td><td>เก็บ metrics ระดับ OS/hardware ของแต่ละ node (CPU, memory, disk)</td></tr>
+</tbody>
+</table>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-f">helm</span> repo add <span class="tok-s">prometheus-community</span> <span class="tok-s">https://prometheus-community.github.io/helm-charts</span>
+<span class="tok-f">helm</span> repo update
+
+<span class="tok-f">helm</span> install <span class="tok-s">monitoring</span> prometheus-community/kube-prometheus-stack -n <span class="tok-s">monitoring</span> --create-namespace</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>helm repo add prometheus-community</strong> — เพิ่ม Helm repo ที่มี chart <code>kube-prometheus-stack</code> อยู่</li>
+    <li><strong>helm repo update</strong> — sync รายการ chart ล่าสุดจาก repo ที่เพิ่ม</li>
+    <li><strong>helm install monitoring prometheus-community/kube-prometheus-stack</strong> — ติดตั้งทั้งชุด (Prometheus, Alertmanager, Grafana, kube-state-metrics, node-exporter) ด้วยชื่อ release <code>monitoring</code></li>
+    <li><strong>-n monitoring --create-namespace</strong> — สร้าง namespace <code>monitoring</code> แยกออกมา ไม่ปนกับ namespace ของแอป และ requirement ของ chart นี้คือ Kubernetes 1.19+ กับ Helm 3+</li>
+  </ol>
+</div>
+
+<h3>ให้ Prometheus scrape /metrics ของแอป Next.js ผ่าน ServiceMonitor</h3>
+<p>ติดตั้ง stack เสร็จแล้ว Prometheus จะเก็บ metrics ของคลัสเตอร์ให้อัตโนมัติ แต่ยังไม่รู้จักแอปของเราเอง ต้องประกาศผ่าน ServiceMonitor ซึ่งเป็น CRD ที่ Prometheus Operator คอยฟังอยู่</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>servicemonitor-nextjs.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">apiVersion</span>: <span class="tok-s">monitoring.coreos.com/v1</span>
+<span class="tok-n">kind</span>: <span class="tok-s">ServiceMonitor</span>
+<span class="tok-n">metadata</span>:
+  <span class="tok-n">name</span>: <span class="tok-s">nextjs-app</span>
+  <span class="tok-n">labels</span>:
+    <span class="tok-n">release</span>: <span class="tok-s">monitoring</span>
+<span class="tok-n">spec</span>:
+  <span class="tok-n">selector</span>:
+    <span class="tok-n">matchLabels</span>:
+      <span class="tok-n">app</span>: <span class="tok-s">nextjs-app</span>
+  <span class="tok-n">endpoints</span>:
+  - <span class="tok-n">port</span>: <span class="tok-s">web</span>
+    <span class="tok-n">path</span>: <span class="tok-s">/metrics</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>labels.release: monitoring</strong> — kube-prometheus-stack ตั้ง Prometheus ให้เลือกเฉพาะ ServiceMonitor ที่มี label ตรงกับชื่อ Helm release เท่านั้น ถ้าใส่ label นี้ผิดหรือลืมใส่ Prometheus จะมองไม่เห็น ServiceMonitor นี้เลย</li>
+    <li><strong>spec.selector.matchLabels.app: nextjs-app</strong> — เลือก Service ที่มี label <code>app: nextjs-app</code> เป็นเป้าหมายให้ scrape ต้องตรงกับ label บน Service ของแอปจริง</li>
+    <li><strong>endpoints.port: web</strong> — ชื่อ port (ไม่ใช่เลขพอร์ต) ที่ประกาศไว้ใน spec ของ Service ต้องตั้งชื่อ port ตรงกันทั้งสองฝั่ง</li>
+    <li><strong>path: /metrics</strong> — endpoint ที่แอป Next.js เปิดไว้ให้ Prometheus ดึงค่า metrics</li>
+  </ol>
+</div>
+
+<p style="font-size:.92em;opacity:.85">หมายเหตุ: การใช้ path <code>/metrics</code> เป็น convention ที่ทั้งวงการใช้กันเป็นมาตรฐานทั่วไป ไม่ใช่ค่าที่ Prometheus บังคับตายตัว ถ้าแอปเปิด metrics endpoint ไว้ path อื่น ก็แค่เปลี่ยนค่านี้ให้ตรงกับที่แอปใช้จริง</p>
+
+<h3>ตั้ง Alert Rule ให้แจ้งเตือนอัตโนมัติ</h3>
+<p>มี metrics แล้ว ทีนี้มาตั้งกฎว่าเมื่อไหร่ควรแจ้งเตือน ตัวอย่างด้านล่างคือ rule แบบ native ของ Prometheus เอง — syntax แบบนี้ใช้ตรงกับไฟล์ rule ที่ Prometheus โหลดเข้าไปโดยตรง</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>nextjs-app-alerts.rules.yaml</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-n">groups</span>:
+- <span class="tok-n">name</span>: <span class="tok-s">nextjs-app-alerts</span>
+  <span class="tok-n">rules</span>:
+  - <span class="tok-n">alert</span>: <span class="tok-s">InstanceDown</span>
+    <span class="tok-n">expr</span>: <span class="tok-f">up == 0</span>
+    <span class="tok-n">for</span>: <span class="tok-s">5m</span>
+    <span class="tok-n">labels</span>:
+      <span class="tok-n">severity</span>: <span class="tok-s">page</span>
+    <span class="tok-n">annotations</span>:
+      <span class="tok-n">summary</span>: <span class="tok-s">"Instance {{ $labels.instance }} down"</span>
+      <span class="tok-n">description</span>: <span class="tok-s">"{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes."</span></code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>groups / name: nextjs-app-alerts</strong> — จัดกลุ่ม rule ไว้ด้วยกัน ตั้งชื่อกลุ่มให้สื่อความหมายว่าเป็น alert ของแอปตัวไหน</li>
+    <li><strong>alert: InstanceDown</strong> — ชื่อ alert ที่จะไปโผล่ใน Alertmanager และ Grafana</li>
+    <li><strong>expr: up == 0</strong> — PromQL expression ที่ตรวจว่า target ที่ Prometheus scrape อยู่หายไปหรือเปล่า (metric <code>up</code> เป็น 0 แปลว่า scrape ไม่ติด)</li>
+    <li><strong>for: 5m</strong> — เงื่อนไขต้องเป็นจริงต่อเนื่อง 5 นาทีก่อนถึงจะยิง alert จริง กันไม่ให้ alert ปลอมจาก network กระตุกแป๊บเดียว</li>
+    <li><strong>labels.severity: page</strong> — ใช้ routing ใน Alertmanager ว่า alert ระดับนี้ต้องปลุกคนจริงๆ ไม่ใช่แค่ log ไว้เฉยๆ</li>
+    <li><strong>annotations.summary / description</strong> — ใช้ template variable อย่าง <code>{{ $labels.instance }}</code> และ <code>{{ $labels.job }}</code> ดึงค่าจาก label จริงมาใส่ในข้อความแจ้งเตือน</li>
+  </ol>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 rule ไฟล์ตรง vs PrometheusRule CRD ไม่เหมือนกันเป๊ะ</p>
+  <p style="margin:0">โค้ดด้านบนคือ syntax rule-file แบบ native ของ Prometheus เอง ถ้าจะใช้กับ kube-prometheus-stack ต้องห่อ <code>groups:</code>/<code>rules:</code> ชุดเดียวกันนี้ไว้ใต้ <code>spec:</code> ของ CRD <code>PrometheusRule</code> (apiVersion: <code>monitoring.coreos.com/v1</code>, kind: <code>PrometheusRule</code>) ตามธรรมเนียมที่ใช้กันทั่วไปในระบบนิเวศ Prometheus Operator — แต่รูปแบบ YAML ที่ห่อ CRD แบบเป๊ะๆ นี้ ทีมยังไม่ได้ตรวจสอบคำต่อคำกับเอกสารต้นทางแยกต่างหาก ก่อนใช้จริงแนะนำให้ตรวจ field ให้ตรงกับเวอร์ชัน Prometheus Operator ที่ติดตั้งอยู่อีกที</p>
+</div>
+
+<h3>Grafana Dashboard โหลดอัตโนมัติผ่าน ConfigMap Sidecar</h3>
+<p>อีกจุดที่ไม่ต้องทำมือคือ dashboard บน Grafana — แทนที่จะไป import ผ่านหน้าเว็บทุกครั้ง kube-prometheus-stack วาง sidecar container ไว้คู่กับ Grafana pod ที่คอยฟัง ConfigMap ใน namespace แล้วโหลด dashboard เข้าไปอัตโนมัติ พูดง่ายๆ คือแค่สร้าง ConfigMap ที่มี label ตามที่ sidecar กำหนด (ปกติคือ <code>grafana_dashboard: "1"</code>) ใส่ JSON ของ dashboard ไว้ข้างใน แล้วปล่อยให้ sidecar sync ให้เอง ไม่ต้อง click ผ่าน UI ทุกครั้งที่ deploy คลัสเตอร์ใหม่</p>
+
+<h3>เก็บ Log ด้วย Loki</h3>
+<p>Metrics บอกว่า "พังตอนไหน" ส่วน log บอกว่า "พังเพราะอะไร" — Loki คือตัวที่มาเติมช่องว่างนี้ เก็บ log จากทุก pod แล้วให้ query ย้อนหลังผ่าน Grafana ได้เลย</p>
+
+<div class="callout warn" data-reveal="fade-up">
+  <p class="callout-title">⚠️ Helm repo ของ Loki ย้ายที่ตั้งแต่มีนาคม 2026</p>
+  <p style="margin:0">ตั้งแต่วันที่ 16 มีนาคม 2026 เป็นต้นมา Loki Helm chart ถูกดูแลต่อโดย Grafana Champions และ Grafana Community ผ่าน repository ใหม่ <code>grafana-community/helm-charts</code> คำแนะนำเก่าที่บอกให้ใช้ <code>helm repo add grafana https://grafana.github.io/helm-charts</code> ใช้ไม่ได้กับ Loki อีกต่อไป (repo เดิมของ Grafana เองยังใช้ได้ปกติสำหรับ Grafana ตัว dashboard เอง แต่ไม่ใช่สำหรับ Loki)</p>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-f">helm</span> repo add <span class="tok-s">grafana-community</span> <span class="tok-s">https://grafana-community.github.io/helm-charts</span>
+<span class="tok-f">helm</span> repo update
+
+<span class="tok-f">helm</span> install --values <span class="tok-s">values.yaml</span> <span class="tok-s">loki</span> grafana-community/loki -n <span class="tok-s">loki</span> --create-namespace</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>helm repo add grafana-community</strong> — repo ใหม่ที่ดูแล Loki chart ต่อจากทีม Grafana Champions/Community ตาม callout ด้านบน</li>
+    <li><strong>helm install --values values.yaml loki grafana-community/loki</strong> — ติดตั้ง Loki ด้วยชื่อ release <code>loki</code> พร้อม config เพิ่มเติมจากไฟล์ <code>values.yaml</code></li>
+    <li><strong>-n loki --create-namespace</strong> — แยก namespace ของ Loki ออกจาก monitoring stack ตัวหลัก</li>
+    <li><strong>deploymentMode</strong> — ใน <code>values.yaml</code> ควรตั้ง <code>deploymentMode: Monolithic</code> ซึ่งเป็นชื่อใหม่ของโหมดที่เคยเรียกว่า <code>SingleBinary</code> ก่อนหน้า chart เวอร์ชัน 12.0.0 — ถ้าเจอเอกสารเก่าพูดถึง <code>SingleBinary</code> ให้รู้ว่าคือโหมดเดียวกัน แค่เปลี่ยนชื่อ</li>
+  </ol>
+</div>
+
+<p>ตอนนี้คลัสเตอร์ "พูด" กับเราได้แล้ว — เห็น metrics, ได้รับ alert ตอนพัง, ดู dashboard สรุปภาพรวมได้ทันที และค้น log ย้อนหลังได้จาก Loki แต่รู้ทันว่าพังยังไม่พอ คำถามถัดไปคือ รู้ได้ยังไงว่าคลัสเตอร์ "รับ load ไหวจริง" ก่อนจะปล่อยให้ user จริงเข้ามาใช้งาน — บทต่อไปเรามาทดสอบกัน</p>
+</section>
+
+<section class="chapter" id="testing">
+<p class="ch-kicker">🧪 บทที่ 11</p>
+<h2>Load Testing กับ Conformance Testing: มั่นใจได้ยังไงว่าคลัสเตอร์พร้อม Production จริง</h2>
+<p class="lede">บทนี้ว่าด้วยการยิง load test ด้วย k6 เข้า Ingress ของแอป Next.js จริง การตรวจ readiness/liveness probe เป็นส่วนหนึ่งของ deploy validation และแนะนำให้รู้จัก sonobuoy สำหรับตรวจว่าคลัสเตอร์เป็นไปตามมาตรฐาน Kubernetes conformance</p>
+
+<div class="speech">
+  <div class="who">🙋‍♂️</div>
+  <div class="bubble"><span class="name">นาย ข.</span>ผม deploy เสร็จแล้ว ผ่าน CI ทุก stage เขียว หมดแล้วครับ ขึ้น production ได้เลยใช่ไหม?</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>CI เขียวแปลว่า build ผ่านกับ test unit ผ่านครับ แต่ยังไม่รู้เลยว่าถ้ามีคนเข้าเว็บพร้อมกัน 500 คน ระบบจะรับไหวไหม นี่แหละหน้าที่ของ load test</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> load testing ตอบคำถามว่า "ระบบของเรารับ traffic จริงไหวไหม" ส่วน conformance testing ตอบคำถามว่า "คลัสเตอร์นี้เป็นไปตามมาตรฐาน Kubernetes จริงไหม" เป็นคนละคำถามกัน และทั้งคู่ต่างจาก readiness/liveness probe ที่ตอบว่า "pod นี้พร้อมรับ traffic ตอนนี้ไหม" — ต้องเช็กทั้งสามระดับก่อนมั่นใจว่าคลัสเตอร์พร้อม production จริง</p>
+
+<h3>ยิง Load Test เข้า Ingress ด้วย k6</h3>
+<p>เริ่มจากสคริปต์ k6 ง่ายๆ ก่อน — จำลอง user 10 คนยิง request เข้า endpoint จริงของแอปพร้อมกันต่อเนื่อง 30 วินาที</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>script.js</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-k">import</span> http <span class="tok-k">from</span> <span class="tok-s">'k6/http'</span>;
+<span class="tok-k">import</span> { sleep } <span class="tok-k">from</span> <span class="tok-s">'k6'</span>;
+
+<span class="tok-k">export const</span> options = {
+  vus: <span class="tok-f">10</span>,
+  duration: <span class="tok-s">'30s'</span>,
+};
+
+<span class="tok-k">export default function</span> () {
+  http.get(<span class="tok-s">'https://nextjs-app.example.com/'</span>);
+  sleep(<span class="tok-f">1</span>);
+}</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>import http from 'k6/http'</strong> — module สำหรับยิง HTTP request ของ k6</li>
+    <li><strong>options.vus: 10</strong> — จำนวน virtual user ที่จำลองพร้อมกัน (VU = virtual user)</li>
+    <li><strong>options.duration: '30s'</strong> — ระยะเวลาที่รัน test ต่อเนื่อง</li>
+    <li><strong>export default function ()</strong> — โค้ดในฟังก์ชันนี้คือสิ่งที่ virtual user แต่ละตัววนรันซ้ำตลอด duration</li>
+    <li><strong>http.get('https://nextjs-app.example.com/')</strong> — ยิง request จริงเข้า domain ที่ผูกกับ Ingress ของแอป Next.js ไม่ใช่ยิงเข้า Service ภายในคลัสเตอร์ตรงๆ เพื่อจำลอง path เดียวกับที่ user จริงเจอ (ผ่าน Ingress controller, TLS, ฯลฯ)</li>
+    <li><strong>sleep(1)</strong> — หน่วง 1 วินาทีต่อรอบ จำลอง think-time ของ user จริง ไม่ใช่ยิงรัวๆ ไม่มีหยุด</li>
+  </ol>
+</div>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-f">k6</span> run script.js</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>k6 run script.js</strong> — รันสคริปต์ตามค่า <code>options</code> ที่ประกาศไว้ในไฟล์ จบแล้ว k6 จะสรุปผลให้ทั้ง latency (p95, p99), request/sec, error rate ทันทีที่ terminal</li>
+  </ol>
+</div>
+
+<p>ทีนี้ถ้าแอปมี flow ที่สำคัญกว่าแค่หน้าแรก เช่นหน้า login ก็ทำ script แยกยิงตรง endpoint นั้นได้เลย</p>
+
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>login-test.js</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-k">import</span> http <span class="tok-k">from</span> <span class="tok-s">'k6/http'</span>;
+
+<span class="tok-k">export default function</span> () {
+  <span class="tok-k">const</span> url = <span class="tok-s">'https://nextjs-app.example.com/api/login'</span>;
+  <span class="tok-k">const</span> payload = JSON.stringify({ email: <span class="tok-s">'test@example.com'</span>, password: <span class="tok-s">'test123'</span> });
+  <span class="tok-k">const</span> params = { headers: { <span class="tok-s">'Content-Type'</span>: <span class="tok-s">'application/json'</span> } };
+  http.post(url, payload, params);
+}</code></pre>
+</div>
+
+<div class="walkthrough" data-reveal="fade-up">
+  <p class="wt-title">อธิบายจาก code</p>
+  <ol>
+    <li><strong>const url</strong> — ยิงตรงเข้า API route <code>/api/login</code> ของแอป Next.js ผ่าน Ingress endpoint เดียวกับที่ user จริงใช้</li>
+    <li><strong>JSON.stringify({...})</strong> — สร้าง payload แบบ JSON เหมือน request จริงที่ frontend ส่งตอน login</li>
+    <li><strong>params.headers</strong> — ตั้ง <code>Content-Type: application/json</code> ให้ตรงกับที่ API endpoint คาดหวัง ถ้าลืมใส่ header นี้ backend อาจ parse body ไม่ออกแล้ว test fail ผิดจุด</li>
+    <li><strong>http.post(url, payload, params)</strong> — ยิง POST request จำลอง flow login จริง เหมาะกับการทดสอบ endpoint ที่มี logic หนักกว่าการ GET หน้าแรกเฉยๆ เช่นมีการ query database หรือเช็ก credential</li>
+  </ol>
+</div>
+
+<h3>Readiness/Liveness Probe เป็นส่วนหนึ่งของ Deploy Validation ด้วย</h3>
+<p>Load test ตอบคำถามเรื่อง throughput แต่ก่อนจะถึงจุดนั้น ต้องมั่นใจก่อนว่าแต่ละ pod เข้าสู่สถานะ ready จริงหลัง deploy ทุกครั้ง — readiness probe กันไม่ให้ traffic ถูกส่งเข้า pod ที่ยังไม่พร้อม (เช่นกำลัง warm-up connection pool กับ database) ส่วน liveness probe กันไม่ให้ pod ที่ deadlock หรือค้างอยู่เนิ่นนานโดยไม่ถูก restart พูดง่ายๆ คือ ทุกครั้งที่ deploy เวอร์ชันใหม่ ควรเช็กในขั้นตอน validation ว่า pod ผ่านสถานะ ready จริง ไม่ใช่แค่ status เป็น Running เฉยๆ เพราะ Running กับ Ready เป็นคนละสถานะกัน pod ที่ค้าง readiness probe จะไม่ถูกส่ง traffic เข้าเลย แม้จะขึ้น Running แล้วก็ตาม</p>
+
+<h3>Conformance Testing: สอบว่าคลัสเตอร์ "เป็น Kubernetes จริง" ไหม</h3>
+<p>อีกระดับหนึ่งที่มักถูกมองข้ามคือ conformance testing — ตรวจว่าคลัสเตอร์ (โดยเฉพาะคลัสเตอร์ที่ตั้งเองหรือใช้ distro ที่ไม่ใช่ managed service ของ cloud provider ใหญ่) ยังทำงานตรงตามมาตรฐาน Kubernetes API จริงหรือเปล่า เครื่องมือที่รู้จักกันในวงการนี้คือ <strong>sonobuoy</strong> ซึ่งรัน e2e conformance test suite อย่างเป็นทางการเข้ากับคลัสเตอร์ บทนี้จะไม่ลงลึกวิธีใช้ sonobuoy แบบเต็มรูปแบบ แค่อยากให้รู้จักไว้ว่ามีเครื่องมือนี้อยู่ — ถ้าทีมดูแล self-managed cluster หรือ custom distro เอง ควรกันเวลาไปศึกษาการรัน conformance test แยกต่างหากอีกที ก่อนจะประกาศว่าคลัสเตอร์นี้ "เป็น Kubernetes มาตรฐาน" จริง</p>
+
+<table>
+<thead><tr><th>เครื่องมือ</th><th>ตอบคำถามอะไร</th><th>รันตอนไหน</th></tr></thead>
+<tbody>
+<tr><td>k6</td><td>ระบบรับ traffic/load จริงไหวไหม</td><td>ก่อนขึ้น production, ก่อน event ที่คาด traffic สูง</td></tr>
+<tr><td>Readiness/Liveness probe</td><td>pod ตัวนี้พร้อมรับ traffic ตอนนี้ไหม / ยัง alive อยู่ไหม</td><td>ทุกครั้งที่ deploy อัตโนมัติ ตลอดเวลาที่ pod รันอยู่</td></tr>
+<tr><td>sonobuoy</td><td>คลัสเตอร์นี้ตรงตามมาตรฐาน Kubernetes API จริงไหม</td><td>ตอนตั้งคลัสเตอร์ใหม่, หลังอัปเกรดเวอร์ชันใหญ่, ตรวจ compliance</td></tr>
+</tbody>
+</table>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 ทั้งสามระดับ ไม่มีตัวไหนแทนกันได้</p>
+  <p style="margin:0">ผ่าน load test ไม่ได้แปลว่า probe ตั้งค่าดีแล้ว และคลัสเตอร์ผ่าน conformance test ก็ไม่ได้แปลว่าแอปจะรับ load ไหว — สามอย่างนี้ตรวจคนละชั้น ต้องทำครบทั้งสามอย่างเป็นส่วนหนึ่งของ checklist ก่อนขึ้น production ไม่ใช่เลือกทำแค่อย่างเดียวแล้วมั่นใจว่าพร้อมแล้ว</p>
+</div>
+
+<p>ตอนนี้เรามีทั้ง backup ที่ซ้อม restore แล้วจริง มี monitoring ที่คอยเตือนก่อนพัง และมีชุดทดสอบที่ยืนยันว่าคลัสเตอร์รับ load ไหวก่อนปล่อยจริง — สามบทนี้รวมกันคือสิ่งที่แยก "คลัสเตอร์ที่ใช้งานได้" ออกจาก "คลัสเตอร์ที่พร้อม production จริง" ไว้ให้เห็นชัดๆ</p>
+</section>
+<section class="chapter" id="hardening">
+  <p class="ch-kicker">🔒 บทที่ 12</p>
+  <h2>Hardening ตาม best practice: RBAC, Pod Security, NetworkPolicy ต่างกันตรงไหน แล้วต้องใช้ครบทุกตัวจริงไหม?</h2>
+  <p class="lede">บทนี้จะปิดรูโหว่ "ข้างใน" cluster ให้ครบ 3 ชั้น — ใครมีสิทธิ์ทำอะไร (RBAC), pod ทำอะไรกับเครื่องได้บ้าง (Pod Security Standards), และใครคุยกับใครได้ (NetworkPolicy) — ก่อนจะปิดท้ายด้วยเครื่องมือ verify ว่า hardening ที่ทำไปนั้น "ได้ผลจริง" หรือแค่รู้สึกว่าปลอดภัย</p>
+
+  <p>หลังจากบทที่แล้วสมชายเทส cluster จน chaos test ผ่านหมด ก็เริ่มมั่นใจว่าระบบพร้อม production เต็มที่ — จนกระทั่งฝ่าย security ขอเข้ามา audit ก่อน launch จริง แล้วส่งรายงานกลับมา...</p>
+
+  <div class="speech">
+    <div class="who">😅</div>
+    <div class="bubble"><span class="name">สมชาย</span>เห้ย นาย ก. รายงาน audit เขียนว่า ServiceAccount default ใน namespace production ผูก ClusterRoleBinding เป็น cluster-admin ไว้... นี่มันแปลว่าอะไรเหรอ</div>
+  </div>
+  <div class="speech right">
+    <div class="who">🧑‍🏫</div>
+    <div class="bubble"><span class="name">นาย ก.</span>แปลว่า pod ไหนก็ตามที่รันด้วย default ServiceAccount ใน namespace นั้น ถ้ามีคน exploit เข้าไปได้แม้แต่ตัวเดียว มันสามารถยิง kubectl API สั่ง delete/create อะไรก็ได้ทั้งคลัสเตอร์เลยนะ ไม่ใช่แค่ namespace เดียว</div>
+  </div>
+
+  <p>นี่คือปัญหาคลาสสิกของ cluster ที่รันมานานโดยไม่เคยรีวิว permission — ทุกอย่าง "รันได้" ก็เลยไม่มีใครไปยุ่งกับ RBAC จนกว่าจะมีคนมาชี้ให้เห็นว่ามันเปิดกว้างขนาดไหน ทีนี้ปัญหาแบบนี้ไม่ได้แก้ด้วยเครื่องมือตัวเดียว เพราะแต่ละเครื่องมือ "ปิดรู" คนละมิติกัน</p>
+
+  <p><strong>กล่าวสั้น ๆ คือ:</strong> hardening ของ K8s ที่ดีต้องเป็น defense-in-depth หลายชั้นซ้อนกัน — RBAC ควบคุมว่า "ใคร/อะไร" เรียก API ได้บ้าง, Pod Security Standards ควบคุมว่า pod ที่รันแล้วทำอะไรกับ host ได้บ้าง, NetworkPolicy ควบคุมว่า pod คุยกับ pod ไหนได้บ้าง แล้วปิดท้ายด้วย kube-bench/Trivy เพื่อ verify ว่าที่ทำมาทั้งหมดตรง benchmark จริงไหม ไม่ใช่แค่ "รู้สึกว่าปลอดภัย"</p>
+
+  <table>
+    <thead><tr><th>เครื่องมือ</th><th>ควบคุมมิติไหน</th><th>ตอบคำถามว่า</th></tr></thead>
+    <tbody>
+      <tr><td>RBAC</td><td>Identity / API access</td><td>"ใคร" เรียก Kubernetes API ทำอะไรได้บ้าง</td></tr>
+      <tr><td>Pod Security Standards</td><td>Pod runtime behavior</td><td>pod ที่รันอยู่แล้ว ทำอะไรกับ host/kernel ได้บ้าง</td></tr>
+      <tr><td>NetworkPolicy</td><td>Network / L3-L4</td><td>pod นี้คุยกับ pod ไหนได้บ้าง ผ่าน port อะไร</td></tr>
+      <tr><td>kube-bench / Trivy</td><td>Compliance / verification</td><td>ที่ตั้งค่าทั้งหมดมา ตรงกับ CIS benchmark และไม่มี image ที่มี CVE เก่าอยู่จริงไหม</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1) RBAC แบบ least-privilege: เลิกให้ใครก็ได้เป็น cluster-admin</h3>
+  <p>โจทย์ของ RBAC คือให้แต่ละ user/ServiceAccount มีสิทธิ์ "เท่าที่จำเป็น" เท่านั้น ตัวอย่างด้านล่างเป็น <code>Role</code> ที่จำกัดสิทธิ์แค่ "อ่าน pod" ใน namespace เดียว แล้วผูกเข้ากับ user ผ่าน <code>RoleBinding</code> — ไม่ใช่ <code>ClusterRole</code>/<code>ClusterRoleBinding</code> ที่จะกินสิทธิ์ทั้งคลัสเตอร์</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>rbac/pod-reader.yaml</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">rbac.authorization.k8s.io/v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Role</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">namespace</span>: <span class="tok-s">production</span>
+  <span class="tok-k">name</span>: <span class="tok-s">pod-reader</span>
+<span class="tok-k">rules</span>:
+- <span class="tok-k">apiGroups</span>: [<span class="tok-s">""</span>]
+  <span class="tok-k">resources</span>: [<span class="tok-s">"pods"</span>]
+  <span class="tok-k">verbs</span>: [<span class="tok-s">"get"</span>, <span class="tok-s">"watch"</span>, <span class="tok-s">"list"</span>]
+---
+<span class="tok-k">apiVersion</span>: <span class="tok-s">rbac.authorization.k8s.io/v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">RoleBinding</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">read-pods</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">production</span>
+<span class="tok-k">subjects</span>:
+- <span class="tok-k">kind</span>: <span class="tok-s">User</span>
+  <span class="tok-k">name</span>: <span class="tok-s">jane</span>
+  <span class="tok-k">apiGroup</span>: <span class="tok-s">rbac.authorization.k8s.io</span>
+<span class="tok-k">roleRef</span>:
+  <span class="tok-k">kind</span>: <span class="tok-s">Role</span>
+  <span class="tok-k">name</span>: <span class="tok-s">pod-reader</span>
+  <span class="tok-k">apiGroup</span>: <span class="tok-s">rbac.authorization.k8s.io</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>Role</code></strong> — ตั้ง namespace ไว้ที่ <code>production</code> ชัดเจน สิทธิ์นี้จะมีผลแค่ namespace เดียว ไม่กระทบ namespace อื่น</li>
+      <li><strong><code>rules</code></strong> — <code>apiGroups: [""]</code> คือ core API group, <code>resources: ["pods"]</code> จำกัดแค่ resource pod, <code>verbs</code> อนุญาตแค่ <code>get</code>/<code>watch</code>/<code>list</code> คือ "อ่านอย่างเดียว" ไม่มี <code>create</code>/<code>delete</code>/<code>update</code></li>
+      <li><strong><code>RoleBinding</code></strong> — ผูก <code>subjects</code> (user <code>jane</code>) เข้ากับ <code>roleRef</code> (Role ชื่อ <code>pod-reader</code>) ทั้งคู่ต้องอยู่ใน namespace เดียวกัน</li>
+      <li>ถ้าจะให้สิทธิ์ทั้งคลัสเตอร์จริง ๆ ต้องเปลี่ยนเป็น <code>ClusterRole</code> + <code>ClusterRoleBinding</code> แทน — ซึ่งคือสิ่งที่ ServiceAccount default ของสมชายโดนผูกไว้แบบผิด ๆ นั่นเอง</li>
+    </ol>
+  </div>
+
+  <h3>2) Pod Security Standards: pod รันแล้วทำอะไรกับ host ได้บ้าง</h3>
+  <p>RBAC คุมแค่ "ใครเรียก API ได้" แต่ไม่ได้คุมว่า pod ที่รันอยู่แล้วจะ mount hostPath, รันเป็น root, หรือขอ privileged container ได้ไหม — นี่คือหน้าที่ของ Pod Security Standards (PSS) ซึ่งมี 3 ระดับ</p>
+
+  <div class="grid3" data-reveal="fade-up">
+    <div class="doodle-card">
+      <p class="callout-title">🔓 Privileged</p>
+      <p style="margin:0">ไม่จำกัดอะไรเลย เปิดกว้างเต็มที่ ใช้เฉพาะ workload ระบบที่ต้องคุม host จริง ๆ (เช่น CNI plugin)</p>
+    </div>
+    <div class="doodle-card r2">
+      <p class="callout-title">🟡 Baseline</p>
+      <p style="margin:0">จำกัดแบบขั้นต่ำ กันช่องโหว่ privilege escalation ที่รู้จักกันแล้ว เหมาะเป็นค่าเริ่มต้นของ namespace ทั่วไป</p>
+    </div>
+    <div class="doodle-card r3 accent">
+      <p class="callout-title">🔒 Restricted</p>
+      <p style="margin:0">เข้มสุด ตาม pod hardening best practice ปัจจุบัน — ห้ามรันเป็น root, ห้าม privilege escalation, จำกัด volume type ที่ใช้ได้</p>
+    </div>
+  </div>
+
+  <p>วิธีบังคับใช้ทำผ่าน label บน namespace ตรง ๆ ไม่ต้องติดตั้ง admission controller เพิ่มเอง (K8s 1.23+ มี Pod Security admission ในตัว) — คีย์ label คือ <code>pod-security.kubernetes.io/&lt;mode&gt;</code> โดย mode มี 3 แบบคือ <code>enforce</code> (บล็อกจริง), <code>audit</code> (log ไว้เฉย ๆ), <code>warn</code> (เตือนตอน apply) แต่ละ mode มี suffix <code>-version</code> ให้ pin เวอร์ชันได้ด้วย</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>namespace-production.yaml</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Namespace</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">production</span>
+  <span class="tok-k">labels</span>:
+    <span class="tok-k">pod-security.kubernetes.io/enforce</span>: <span class="tok-s">restricted</span>
+    <span class="tok-k">pod-security.kubernetes.io/enforce-version</span>: <span class="tok-s">v1.31</span>
+    <span class="tok-k">pod-security.kubernetes.io/warn</span>: <span class="tok-s">restricted</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>pod-security.kubernetes.io/enforce: restricted</code></strong> — บล็อก pod ที่ไม่ผ่านระดับ restricted ตั้งแต่ตอน apply เลย ไม่ใช่แค่เตือน</li>
+      <li><strong><code>enforce-version: v1.31</code></strong> — pin เวอร์ชันของ policy ให้ตรงกับตอนที่ทดสอบไว้ ป้องกัน behavior เปลี่ยนแบบไม่รู้ตัวตอน K8s อัปเกรด</li>
+      <li><strong><code>warn: restricted</code></strong> — ใช้คู่กับ enforce เพื่อให้ผู้ที่ apply เห็น warning ชัดเจนตอนที่ manifest มีอะไรขัดกับ restricted แม้จะยัง apply ผ่าน (เผื่อ enforce ตั้งไว้ต่ำกว่า)</li>
+    </ol>
+  </div>
+
+  <p>ถ้า namespace มีอยู่แล้วไม่อยากรื้อ manifest ทั้งไฟล์ ก็ label เพิ่มทีหลังได้ตรง ๆ ผ่าน <code>kubectl</code>:</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">kubectl</span> label --overwrite ns production \
+  pod-security.kubernetes.io/enforce=restricted \
+  pod-security.kubernetes.io/enforce-version=v1.31</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>--overwrite</code></strong> — จำเป็นเพราะ namespace อาจมี label ชื่อนี้อยู่แล้ว (เช่นตั้งเป็น baseline ไว้ก่อน) ถ้าไม่ใส่ flag นี้ kubectl จะปฏิเสธการเขียนทับ</li>
+      <li>คำสั่งเดียวใส่ได้หลาย label พร้อมกัน — สะดวกเวลาต้องตั้ง enforce + enforce-version พร้อมกันในทีเดียว</li>
+    </ol>
+  </div>
+
+  <div class="callout warn" data-reveal="fade-up">
+    <p class="callout-title">⚠️ เวอร์ชันต้อง pin ให้ตรงคลัสเตอร์จริง</p>
+    <p style="margin:0"><code>v1.31</code> ในตัวอย่างเป็นแค่ตัวอย่าง ต้องเช็คเวอร์ชัน minor ของ K8s cluster ตัวเองก่อนใส่ (<code>kubectl version</code>) เพราะ policy ของแต่ละเวอร์ชันมีรายละเอียดต่างกัน ใส่เวอร์ชันผิดอาจทำให้ enforce ทำงานไม่ตรงกับที่ทดสอบไว้</p>
+  </div>
+
+  <h3>3) NetworkPolicy: default-deny-ingress ก่อนเปิดเฉพาะที่จำเป็น</h3>
+  <p>ทีนี้ต่อให้ RBAC กับ PSS แน่นแค่ไหน ถ้า pod ทุกตัวใน cluster ยังคุยกันได้อย่างอิสระ (ค่า default ของ K8s คือ "ไม่บล็อกอะไรเลย") แปลว่า pod ที่โดน exploit ตัวเดียวสามารถไล่สแกนหา pod อื่นในเครือข่ายเดียวกันได้หมด แนวทางมาตรฐานคือเริ่มจาก deny-all แล้วค่อยเปิดเฉพาะ path ที่จำเป็น</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>networkpolicy/default-deny-ingress.yaml</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">networking.k8s.io/v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">NetworkPolicy</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">default-deny-ingress</span>
+  <span class="tok-k">namespace</span>: <span class="tok-s">production</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">podSelector</span>: {}
+  <span class="tok-k">policyTypes</span>:
+  - <span class="tok-s">Ingress</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>podSelector: {}</code></strong> — selector ว่าง หมายถึง "pod ทุกตัวใน namespace นี้" ไม่ใช่ "ไม่เลือกใครเลย"</li>
+      <li><strong><code>policyTypes: [Ingress]</code></strong> — ประกาศว่า policy นี้ควบคุมขาเข้า (ingress traffic) เท่านั้น</li>
+      <li>เพราะไม่มี <code>ingress:</code> rule ระบุไว้เลยข้างล่าง ผลคือ "ไม่มี traffic ขาเข้าใดเข้าได้เลย" — นี่คือ default-deny ที่แท้จริง</li>
+      <li>หลังจากนี้ต้องสร้าง NetworkPolicy เพิ่มเติมเพื่อ "อนุญาต" เฉพาะ path ที่จำเป็น เช่น ให้ Ingress controller คุยกับ pod แอปได้ ให้ pod แอปคุยกับ database ได้ เป็นต้น</li>
+    </ol>
+  </div>
+
+  <div class="callout" data-reveal="fade-up">
+    <p class="callout-title">💡 กติกาเรื่อง OR / AND ของ NetworkPolicy</p>
+    <p style="margin:0">ตอนเขียน rule เพิ่มเติมให้จำไว้ว่า entry หลายอันใน <code>from</code>/<code>to</code> จะถูก OR กัน (เข้าเงื่อนไขอันใดอันหนึ่งก็พอ) แต่ field ต่าง ๆ ภายใน entry เดียวกันจะถูก AND กัน (ต้องตรงทุก field ใน entry นั้น) — เขียนผิดจุดนี้บ่อยมากจนเปิดกว้างเกินตั้งใจ</p>
+  </div>
+
+  <h3>4) kube-bench: เช็คว่า cluster เราผ่าน CIS Benchmark จริงไหม</h3>
+  <p>ตั้งค่าทั้งหมดข้างบนมาด้วยมือ แล้วจะรู้ได้ไงว่าตั้งครบตาม standard ที่ยอมรับกันในวงการ? <a href="https://github.com/aquasecurity/kube-bench" target="_blank" rel="noopener">kube-bench</a> คือเครื่องมือที่เช็คว่า Kubernetes ถูก deploy อย่างปลอดภัยตามเกณฑ์ของ CIS Kubernetes Benchmark วิธีรันที่สะดวกสุดในคลัสเตอร์คือรันเป็น Job</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">kubectl</span> apply -f https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
+<span class="tok-f">kubectl</span> get pods
+<span class="tok-f">kubectl</span> logs job/kube-bench</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>kubectl apply -f .../job.yaml</code></strong> — ดึง manifest Job ตัวจริงจาก repo ทางการมาสร้าง Job ที่รัน kube-bench เป็น pod ในคลัสเตอร์ตรง ๆ</li>
+      <li><strong><code>kubectl get pods</code></strong> — เช็คว่า pod ของ Job รันจบ (Completed) หรือยัง</li>
+      <li><strong><code>kubectl logs job/kube-bench</code></strong> — ดึง log ผลลัพธ์ ซึ่งจะไล่ลิสต์ทีละ check ตามหมวดของ CIS benchmark พร้อมสถานะ PASS / FAIL / WARN / INFO ต่อรายการ ให้ไล่ดู FAIL ก่อนเป็นอันดับแรก</li>
+    </ol>
+  </div>
+
+  <p>ถ้าไม่อยากรันเป็น Job ในคลัสเตอร์ ก็มีทางเลือกรันแบบ container ตรงบน node ผ่าน Docker ได้เหมือนกัน โดยต้อง mount <code>/etc</code> กับ <code>/var</code> แบบ read-only เข้าไปให้ kube-bench อ่าน config ของ node จริง:</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">docker</span> run --pid=host -v /etc:/etc:ro -v /var:/var:ro -t docker.io/aquasec/kube-bench:latest --version 1.18</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>--pid=host</code></strong> — ให้ container มองเห็น process ของ host เพื่อเช็ค flag ที่ kube-apiserver/kubelet รันอยู่จริง</li>
+      <li><strong><code>-v /etc:/etc:ro -v /var:/var:ro</code></strong> — mount config file ของ node เข้ามาแบบอ่านอย่างเดียว</li>
+      <li><strong><code>--version 1.18</code></strong> — ระบุเวอร์ชันอ้างอิงให้ kube-bench ใช้เลือกชุด check ที่เหมาะสม (แยกจาก flag <code>--benchmark</code> ที่ใช้ระบุชื่อ CIS benchmark ตรง ๆ) ไม่ใช่เลขเวอร์ชันของตัวโปรแกรม kube-bench เอง — ให้ปรับเลขนี้ให้ตรงกับคลัสเตอร์จริงเสมอ</li>
+    </ol>
+  </div>
+
+  <div class="callout" data-reveal="fade-up">
+    <p class="callout-title">💡 benchmark version ต้องเลือกให้ตรง K8s version</p>
+    <p style="margin:0">CIS benchmark ออกเป็นเวอร์ชันตาม K8s minor version (flag <code>--benchmark</code>/<code>--version</code> ต่างกันไปตามคู่มือ) — รันด้วย benchmark คนละเวอร์ชันกับคลัสเตอร์จริงจะได้ผล FAIL/PASS ที่เข้าใจผิดได้ ให้เช็คเวอร์ชันคลัสเตอร์ก่อนเลือก benchmark ที่จะรันเสมอ</p>
+  </div>
+
+  <h3>5) Trivy: scan image ก่อน deploy และ scan ทั้ง cluster</h3>
+  <p>kube-bench เช็คการตั้งค่าคลัสเตอร์ แต่ไม่ได้เช็คว่า image ที่กำลังจะ deploy มี CVE เก่าซุกอยู่ไหม นี่คือหน้าที่ของ <a href="https://github.com/aquasecurity/trivy" target="_blank" rel="noopener">Trivy</a> ซึ่งใช้ scan ได้ทั้งระดับ image เดี่ยว ๆ และทั้งคลัสเตอร์รวด</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">trivy</span> image myregistry/nextjs-app:1.0.0</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>trivy image</code></strong> — scan image ที่ระบุ (ในที่นี้คือ image ของ Next.js app จากบทก่อน ๆ) หา CVE ในทุก layer ทั้ง OS package และ library ของแอป ควรรันเป็น step ใน CI ก่อน push image ขึ้น registry</li>
+    </ol>
+  </div>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">trivy</span> k8s --report summary cluster</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>trivy k8s cluster</code></strong> — สแกน resource ทั้งคลัสเตอร์ (ไม่ใช่แค่ image เดียว) รวมถึง config ของ Role/RoleBinding, Pod spec ที่รันอยู่จริง</li>
+      <li><strong><code>--report summary</code></strong> — สรุปผลแบบภาพรวมต่อ namespace/resource แทนที่จะพ่น finding รายละเอียดยาวทั้งหมด เหมาะกับดูภาพรวมก่อนไล่ลึก</li>
+    </ol>
+  </div>
+
+  <div class="callout warn" data-reveal="fade-up">
+    <p class="callout-title">⚠️ <code>trivy k8s</code> ยังเป็น EXPERIMENTAL</p>
+    <p style="margin:0">official docs ของ Trivy ระบุชัดว่าฟีเจอร์ <code>trivy k8s</code> ยังอยู่สถานะ EXPERIMENTAL "อาจเปลี่ยนแปลงได้โดยไม่รักษาความเข้ากันได้แบบย้อนหลัง" (might change without preserving backwards compatibility) — เหมาะใช้เป็นเครื่องมือช่วย audit เพิ่มเติม แต่อย่าผูก pipeline สำคัญไว้กับ output format ของคำสั่งนี้แบบตายตัว เพราะ flag/format อาจเปลี่ยนได้ในเวอร์ชันถัดไป</p>
+  </div>
+
+  <p>ตอนนี้ cluster ของสมชายปิดรูข้างในครบแล้ว — ใครเรียก API ได้แค่เท่าที่จำเป็น (RBAC), pod ทำอะไรกับ host ได้จำกัด (PSS), pod คุยกันได้แค่ path ที่อนุญาต (NetworkPolicy) แล้วก็มีเครื่องมือ verify (kube-bench/Trivy) คอยเช็คซ้ำ แต่ทั้งหมดนี้เป็นการป้องกัน "ข้างใน" คลัสเตอร์ล้วน ๆ — traffic จากโลกภายนอกที่วิ่งเข้ามาทาง HTTP ยังไม่มีใครกรองเลยสักตัว บทต่อไปจะไปปิด layer สุดท้ายนี้กัน</p>
+</section>
+
+<section class="chapter" id="proxy-waf">
+  <p class="ch-kicker">🛡️ บทที่ 13</p>
+  <h2>Proxy + WAF: Ingress-NGINX, cert-manager, ModSecurity ต่างหน้าที่กันยังไง แล้วประกอบร่างเป็นปราการด่านสุดท้ายได้ยังไง</h2>
+  <p class="lede">บทนี้คือ layer ป้องกันสุดท้ายก่อน traffic จากอินเทอร์เน็ตจะแตะ pod จริง — ติดตั้ง Ingress-NGINX เป็นทางเข้าเดียว, ใช้ cert-manager ออก TLS cert อัตโนมัติ, เปิด ModSecurity + OWASP Core Rule Set เป็น WAF กรอง request อันตรายระดับ L7 และปิดท้ายด้วย rate limiting</p>
+
+  <p>หลังบทที่แล้ว cluster ของสมชายแน่นขึ้นมากทั้ง RBAC, Pod Security, NetworkPolicy จนตัวเองก็เริ่มมั่นใจ แต่นาย ข. ที่เพิ่งเข้าทีมมาถามคำถามที่ฟังดูไร้เดียงสาแต่จริง ๆ แหลมมาก</p>
+
+  <div class="speech">
+    <div class="who">🙋</div>
+    <div class="bubble"><span class="name">นาย ข.</span>พี่ครับ ในเมื่อเรา harden ข้างใน cluster แน่นขนาดนี้แล้ว ทำไม pentest รอบใหม่ยังเจอว่ายิง SQL injection ผ่าน request ปกติเข้าไปที่แอปได้อยู่เลยครับ?</div>
+  </div>
+  <div class="speech right">
+    <div class="who">🧑‍🏫</div>
+    <div class="bubble"><span class="name">นาย ก.</span>เพราะ RBAC/PSS/NetworkPolicy ทั้งหมดที่ทำมาคุมแค่ "ข้างใน" คลัสเตอร์ — ไม่มีตัวไหนอ่านเนื้อ HTTP request เลยสักตัว มันไม่รู้หรอกว่า body ของ request มี payload SQLi ซ่อนอยู่ ต้องมี layer ที่อ่าน L7 จริง ๆ ถึงจะกรองแบบนี้ได้</div>
+  </div>
+
+  <p>คำตอบของนาย ก. คือกุญแจของบทนี้ — ทุกอย่างที่ทำมาในบทก่อนเป็นการป้องกันระดับ infrastructure/network แต่ layer สุดท้ายที่ต้องมีคือจุดที่ request จริงวิ่งผ่าน ซึ่งต้องทำ 4 อย่างพร้อมกัน คือมี "ประตูทางเข้าเดียว" ที่เข้ารหัสด้วย TLS, มี "ยาม" ที่อ่านเนื้อ request กรอง payload อันตราย และมี "ตัวจำกัดจำนวนคนเข้าคิว" กัน brute-force</p>
+
+  <p><strong>กล่าวสั้น ๆ คือ:</strong> Ingress-NGINX เป็นประตูทางเข้าเดียวของ traffic ทั้งหมด, cert-manager ทำหน้าที่ออก/ต่ออายุ TLS cert ให้อัตโนมัติไม่ต้องขอมือ, ModSecurity + OWASP CRS คือ WAF ที่อ่านเนื้อ request กรอง payload อันตรายระดับ L7, ส่วน rate-limit annotation ช่วยกัน brute-force/DDoS เบื้องต้น — ทั้งหมดนี้ประกอบกันเป็น <span class="mark">ปราการด่านสุดท้าย</span>ก่อนถึง pod จริง</p>
+
+  <table>
+    <thead><tr><th>เครื่องมือ</th><th>ทำหน้าที่อะไร</th><th>ป้องกันอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>Ingress-NGINX</td><td>reverse proxy + entry point เดียวของ cluster</td><td>ไม่ต้อง expose แต่ละ Service ออกเน็ตตรง ๆ</td></tr>
+      <tr><td>cert-manager</td><td>ขอ/ต่ออายุ TLS certificate อัตโนมัติจาก Let's Encrypt</td><td>traffic วิ่งแบบ plaintext HTTP โดยไม่ตั้งใจ</td></tr>
+      <tr><td>ModSecurity + OWASP CRS</td><td>วิเคราะห์เนื้อ HTTP request แบบ L7</td><td>SQLi, XSS, และ attack pattern ที่รู้จักตาม OWASP CRS</td></tr>
+      <tr><td>Rate-limit annotations</td><td>จำกัดจำนวน request/connection ต่อ IP</td><td>brute-force, DDoS เบื้องต้นระดับ L7</td></tr>
+    </tbody>
+  </table>
+
+  <h3>1) ติดตั้ง Ingress-NGINX ด้วย Helm</h3>
+  <p>เริ่มจากติดตั้งตัว controller เองก่อนผ่าน Helm chart ทางการ</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">helm</span> upgrade --install ingress-nginx ingress-nginx \
+  --repo https://kubernetes.github.io/ingress-nginx \
+  --namespace ingress-nginx --create-namespace</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>helm upgrade --install</code></strong> — ใช้แทน <code>helm install</code> ตรง ๆ เพราะรันซ้ำได้ปลอดภัย ถ้ายังไม่เคยติดตั้งจะ install ให้ ถ้าติดตั้งแล้วจะ upgrade แทน</li>
+      <li><strong><code>--repo https://kubernetes.github.io/ingress-nginx</code></strong> — ดึง chart จาก Helm repo ทางการของโปรเจกต์ตรง ๆ ไม่ต้อง <code>helm repo add</code> ล่วงหน้า</li>
+      <li><strong><code>--namespace ingress-nginx --create-namespace</code></strong> — แยก namespace เฉพาะให้ controller ไม่ปนกับ workload อื่น พร้อมสร้าง namespace ให้อัตโนมัติถ้ายังไม่มี</li>
+    </ol>
+  </div>
+
+  <p>จากนั้นสร้าง Ingress resource ตัวแรกให้ชี้เข้า Service ของ Next.js app ที่ deploy ไว้ตั้งแต่บทก่อน ๆ</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ingress/nextjs-ingress.yaml</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">networking.k8s.io/v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">Ingress</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">nextjs-ingress</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">ingressClassName</span>: <span class="tok-s">nginx</span>
+  <span class="tok-k">rules</span>:
+  - <span class="tok-k">host</span>: <span class="tok-s">app.example.com</span>
+    <span class="tok-k">http</span>:
+      <span class="tok-k">paths</span>:
+      - <span class="tok-k">path</span>: <span class="tok-s">/</span>
+        <span class="tok-k">pathType</span>: <span class="tok-s">Prefix</span>
+        <span class="tok-k">backend</span>:
+          <span class="tok-k">service</span>:
+            <span class="tok-k">name</span>: <span class="tok-s">nextjs-app</span>
+            <span class="tok-k">port</span>:
+              <span class="tok-k">number</span>: <span class="tok-f">80</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>ingressClassName: nginx</code></strong> — บอกว่า Ingress นี้ให้ Ingress-NGINX controller เป็นคนดูแล (เผื่อคลัสเตอร์มีหลาย controller ติดตั้งพร้อมกัน)</li>
+      <li><strong><code>rules[].host</code></strong> — domain ที่ Ingress นี้รับ traffic (<code>app.example.com</code>) — request ที่ Host header ไม่ตรงจะไม่ถูกส่งมาที่ rule นี้</li>
+      <li><strong><code>paths[].path: /</code> + <code>pathType: Prefix</code></strong> — จับทุก path ที่ขึ้นต้นด้วย <code>/</code> คือทั้งเว็บ</li>
+      <li><strong><code>backend.service</code></strong> — ส่งต่อไปที่ Service ชื่อ <code>nextjs-app</code> พอร์ต 80 ซึ่งเป็น Service ที่ตั้งไว้ตั้งแต่บท deploy Next.js</li>
+    </ol>
+  </div>
+
+  <h3>2) cert-manager + Let's Encrypt: TLS อัตโนมัติ ไม่ต้องขอ cert มือ</h3>
+  <p>มี Ingress แล้วแต่ยังเป็น HTTP เปลือย ๆ ทีนี้ติดตั้ง cert-manager เพื่อขอ/ต่ออายุ cert จาก Let's Encrypt ให้อัตโนมัติ</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-f">helm</span> repo add jetstack https://charts.jetstack.io --force-update
+<span class="tok-f">helm</span> install cert-manager jetstack/cert-manager \
+  --namespace cert-manager --create-namespace \
+  --set crds.enabled=true</code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>helm repo add jetstack ... --force-update</code></strong> — เพิ่ม Helm repo ทางการของ cert-manager พร้อม force update ให้ได้ chart index ล่าสุดเสมอ</li>
+      <li><strong><code>--namespace cert-manager --create-namespace</code></strong> — แยก namespace เฉพาะเหมือน ingress-nginx</li>
+      <li><strong><code>--set crds.enabled=true</code></strong> — สั่งให้ chart ติดตั้ง CustomResourceDefinition (เช่น <code>Certificate</code>, <code>ClusterIssuer</code>) มาพร้อมกันในทีเดียว ไม่ต้อง apply แยก</li>
+    </ol>
+  </div>
+
+  <div class="callout" data-reveal="fade-up">
+    <p class="callout-title">💡 flag เปลี่ยนชื่อ อย่าใช้ของเก่า</p>
+    <p style="margin:0">docs รุ่นเก่า/บทความเก่าจำนวนมากยังใช้ <code>--set installCRDs=true</code> ซึ่งเป็น flag เก่าของ cert-manager — เอกสารทางการปัจจุบันเปลี่ยนมาใช้ <code>--set crds.enabled=true</code> แล้ว ถ้า copy คำสั่งจากบทความเก่ามาใช้ตรง ๆ อาจ error หรือ CRD ไม่ถูกติดตั้งตามที่คาดไว้</p>
+  </div>
+
+  <p>ติดตั้งเสร็จแล้วต้องสร้าง <code>ClusterIssuer</code> เพื่อบอกว่าจะขอ cert จากที่ไหน ด้วยวิธี challenge แบบไหน</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>cert-manager/clusterissuer-letsencrypt.yaml</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">apiVersion</span>: <span class="tok-s">cert-manager.io/v1</span>
+<span class="tok-k">kind</span>: <span class="tok-s">ClusterIssuer</span>
+<span class="tok-k">metadata</span>:
+  <span class="tok-k">name</span>: <span class="tok-s">letsencrypt-prod</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">acme</span>:
+    <span class="tok-k">server</span>: <span class="tok-s">https://acme-v02.api.letsencrypt.org/directory</span>
+    <span class="tok-k">email</span>: <span class="tok-s">admin@example.com</span>
+    <span class="tok-k">privateKeySecretRef</span>:
+      <span class="tok-k">name</span>: <span class="tok-s">letsencrypt-prod</span>
+    <span class="tok-k">solvers</span>:
+      - <span class="tok-k">http01</span>:
+          <span class="tok-k">ingress</span>:
+            <span class="tok-k">ingressClassName</span>: <span class="tok-s">nginx</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>server</code></strong> — ชี้ไปที่ ACME endpoint ตัวจริง (production) ของ Let's Encrypt — ถ้าเทสอยู่ควรใช้ staging endpoint แยกต่างหากเพื่อไม่ให้ชน rate limit ของ production</li>
+      <li><strong><code>email</code></strong> — อีเมลรับแจ้งเตือนก่อน cert หมดอายุ/มีปัญหาการต่ออายุ</li>
+      <li><strong><code>privateKeySecretRef</code></strong> — ชื่อ Secret ที่ cert-manager จะเก็บ private key ของ account ACME ไว้ใช้ครั้งถัดไป</li>
+      <li><strong><code>solvers[].http01.ingress.ingressClassName: nginx</code></strong> — เลือกวิธี validate domain แบบ HTTP-01 โดยฝาก challenge ไว้ผ่าน Ingress-NGINX controller ที่ติดตั้งไว้ในขั้นก่อนหน้า</li>
+    </ol>
+  </div>
+
+  <p>สุดท้ายกลับไปเติม annotation กับ block <code>tls</code> ที่ Ingress เดิมเพื่อเปิด auto-TLS</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ingress/nextjs-ingress.yaml (เพิ่ม TLS)</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">metadata</span>:
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">cert-manager.io/cluster-issuer</span>: <span class="tok-s">"letsencrypt-prod"</span>
+<span class="tok-k">spec</span>:
+  <span class="tok-k">tls</span>:
+  - <span class="tok-k">hosts</span>:
+    - <span class="tok-s">app.example.com</span>
+    <span class="tok-k">secretName</span>: <span class="tok-s">nextjs-app-tls</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>cert-manager.io/cluster-issuer: "letsencrypt-prod"</code></strong> — บอก cert-manager ว่า Ingress นี้ต้องการ cert จาก ClusterIssuer ที่สร้างไว้ก่อนหน้า</li>
+      <li><strong><code>tls[].hosts</code></strong> — ต้องตรงกับ <code>host</code> ใน <code>rules</code> เดิม ไม่งั้น cert จะออกมาไม่ตรง domain ที่ใช้จริง</li>
+      <li><strong><code>secretName: nextjs-app-tls</code></strong> — cert-manager จะสร้าง Secret ชื่อนี้ให้อัตโนมัติ เก็บทั้ง cert และ private key แล้ว Ingress-NGINX จะดึง Secret นี้มาทำ TLS termination เอง</li>
+    </ol>
+  </div>
+
+  <h3>3) ModSecurity + OWASP Core Rule Set: WAF ระดับ L7</h3>
+  <p>ตอนนี้มี TLS แล้ว แต่ยังไม่มีใคร "อ่านเนื้อ" request เลย — เปิด ModSecurity พร้อม OWASP Core Rule Set (CRS) ผ่าน annotation ของ Ingress-NGINX ได้ตรง ๆ ทีละ Ingress</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ingress/nextjs-ingress.yaml (เพิ่ม WAF)</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">metadata</span>:
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">nginx.ingress.kubernetes.io/enable-modsecurity</span>: <span class="tok-s">"true"</span>
+    <span class="tok-k">nginx.ingress.kubernetes.io/enable-owasp-core-rules</span>: <span class="tok-s">"true"</span>
+    <span class="tok-k">nginx.ingress.kubernetes.io/modsecurity-snippet</span>: |
+      <span class="tok-n">SecRuleEngine On</span>
+      <span class="tok-n">SecDebugLog /tmp/modsec_debug.log</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>enable-modsecurity: "true"</code></strong> — เปิด ModSecurity module ให้ Ingress นี้ (ค่า default ของทั้ง controller คือปิดไว้)</li>
+      <li><strong><code>enable-owasp-core-rules: "true"</code></strong> — โหลดชุด rule OWASP CRS เข้ามาใช้กรอง pattern อันตรายที่รู้จักกัน (SQLi, XSS ฯลฯ)</li>
+      <li><strong><code>modsecurity-snippet</code></strong> — เพิ่ม config ดิบของ ModSecurity ต่อ Ingress ในที่นี้สั่ง <code>SecRuleEngine On</code> เพื่อให้ ModSecurity "บล็อกจริง" ไม่ใช่แค่ log</li>
+    </ol>
+  </div>
+
+  <div class="callout" data-reveal="fade-up">
+    <p class="callout-title">⚠️ ชื่อ annotation กับชื่อคีย์ใน ConfigMap ไม่เหมือนกัน</p>
+    <p style="margin:0">จุดที่งงกันบ่อยมาก — ตอนเปิดแบบ per-Ingress annotation ใช้ชื่อ <code>enable-owasp-core-rules</code> แต่ถ้าจะเปิดแบบ global ผ่าน ConfigMap ของ controller (<code>enable-modsecurity: "false"</code> และ <code>enable-owasp-modsecurity-crs: "false"</code> เป็นค่า default ปิดไว้ทั้งคู่) ต้องใช้ชื่อคีย์ <code>enable-owasp-modsecurity-crs</code> แทน คนละชื่อกันแม้จะทำหน้าที่เดียวกัน ใส่ผิดชื่อจะไม่ error แต่ CRS จะไม่ถูกโหลดเงียบ ๆ โดยไม่มีใครรู้ตัว</p>
+  </div>
+
+  <div class="callout warn" data-reveal="fade-up">
+    <p class="callout-title">⚠️ ค่า default คือ Detection-Only ไม่ใช่ Block</p>
+    <p style="margin:0">พอเปิด ModSecurity แล้ว โหมดเริ่มต้นคือ Detection-Only คือ log ว่าเจอ pattern น่าสงสัยไว้เฉย ๆ แต่ยังปล่อย request ผ่านไปตามปกติ — ถ้าต้องการให้บล็อกจริงต้องสั่ง <code>SecRuleEngine On</code> เพิ่มเองแบบในตัวอย่างข้างบน แนะนำให้รันโหมด Detection-Only สักพักก่อนเพื่อดู false positive ก่อนสลับไปโหมดบล็อกจริงบน production</p>
+  </div>
+
+  <h3>4) Rate limiting: กัน brute-force / DDoS เบื้องต้นระดับ Ingress</h3>
+  <p>WAF กรอง payload อันตรายได้ แต่ไม่ได้กันคนยิง request รัว ๆ เพื่อ brute-force password หรือถล่ม endpoint เดียวซ้ำ ๆ — annotation ของ Ingress-NGINX มีให้ตั้ง rate limit ต่อ IP ได้ตรง ๆ</p>
+
+  <div class="code-block">
+    <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>ingress/nextjs-ingress.yaml (เพิ่ม rate limit)</span><button class="copy-btn">copy</button></div>
+    <pre><code><span class="tok-k">metadata</span>:
+  <span class="tok-k">annotations</span>:
+    <span class="tok-k">nginx.ingress.kubernetes.io/limit-rps</span>: <span class="tok-s">"20"</span>
+    <span class="tok-k">nginx.ingress.kubernetes.io/limit-burst-multiplier</span>: <span class="tok-s">"5"</span>
+    <span class="tok-k">nginx.ingress.kubernetes.io/limit-connections</span>: <span class="tok-s">"10"</span></code></pre>
+  </div>
+
+  <div class="walkthrough" data-reveal="fade-up">
+    <p class="wt-title">อธิบายจาก code</p>
+    <ol>
+      <li><strong><code>limit-rps: "20"</code></strong> — จำกัด request ต่อวินาทีต่อ IP หนึ่งไม่เกิน 20 ครั้ง</li>
+      <li><strong><code>limit-burst-multiplier: "5"</code></strong> — อนุญาตให้ burst ได้สูงสุด 5 เท่าของ <code>limit-rps</code> ชั่วครู่ (ค่า default ของ controller ก็คือ 5 เท่าอยู่แล้ว ใส่ไว้ตรง ๆ ให้ชัดเจน) กัน false positive ตอน user โหลดหน้าเว็บที่มีหลาย asset พร้อมกัน</li>
+      <li><strong><code>limit-connections: "10"</code></strong> — จำกัดจำนวน connection พร้อมกันต่อ IP ต่อ replica ไม่เกิน 10 connection</li>
+    </ol>
+  </div>
+
+  <p>รวมทั้ง 4 ชั้นเข้าด้วยกัน เส้นทางของ request หนึ่งตัวตอนนี้จะหน้าตาแบบนี้ — จากลูกค้าวิ่งผ่าน WAF/Ingress-NGINX ก่อนถึง Service แล้วค่อยเข้า Pod จริง ไม่มี path ไหนที่ข้ามชั้นกรองไปได้เลย</p>
+
+  <figure class="diagram">
+    <div class="flow-row" data-reveal="fade-up">
+      <div class="node"><div class="ic">🧑‍💻</div><h5>Client</h5><p>ยิง HTTPS request เข้ามา</p></div>
+      <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+      <div class="node hl"><div class="ic">🛡️</div><h5>WAF / Ingress-NGINX</h5><p>TLS termination + ModSecurity CRS + rate limit</p></div>
+      <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+      <div class="node"><div class="ic">🔌</div><h5>Service</h5><p>load balance ไปยัง pod ที่พร้อมรับ traffic</p></div>
+      <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+      <div class="node"><div class="ic">📦</div><h5>Pod</h5><p>รัน Next.js app จริง ภายใต้ RBAC/PSS/NetworkPolicy จากบทที่แล้ว</p></div>
+    </div>
+    <figcaption>request ทุกตัวต้องผ่าน WAF/Ingress-NGINX ก่อนเสมอ ไม่มี Service ไหน expose ตรงออกอินเทอร์เน็ต</figcaption>
+  </figure>
+
+  <p>ตอนนี้ cluster ของสมชายมีครบทั้งเกราะชั้นใน (RBAC, Pod Security, NetworkPolicy) และเกราะชั้นนอก (Ingress-NGINX, cert-manager, ModSecurity, rate limit) แล้ว บทต่อไปจะเอาทุกชิ้นส่วนตั้งแต่บทที่ 2 มาจนถึงบทนี้ มาประกอบร่างเป็นระบบ production เดียวจริง ๆ ให้เห็นภาพรวมทั้งหมดพร้อมกัน</p>
+</section>
+
+
+<section class="chapter" id="case-study">
+<p class="ch-kicker">🧩 บทที่ 14</p>
+<h2>ประกอบร่างทั้งหมดเป็นระบบเดียว — หน้าตา Production Cluster ที่สมชายสร้างจริง</h2>
+<p class="lede">13 บทที่ผ่านมาแต่ละบทแก้ปัญหาคนละมิติ บทนี้เอาทุกชิ้นมาต่อกันเป็นภาพเดียว ให้เห็นว่าคลัสเตอร์ที่ "production-grade" จริงๆ หน้าตาเป็นยังไงเมื่อมองจากบนลงล่าง</p>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>ผมทำตามทุกบทมาแล้วครับ แต่ตอนนี้งงว่าทั้งหมดนี้มันต่อกันตรงไหนบ้าง ช่วยวาดภาพรวมให้ดูหน่อยได้ไหมครับ</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>ได้เลยครับ ลองมองเป็นสองมุม — มุมแรกคือ "โครงสร้างเครื่อง" ว่ามี node อะไรบ้าง อีกมุมคือ "เส้นทางของ request" ว่าวิ่งผ่านอะไรบ้างกว่าจะถึงแอปจริง</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> production cluster ที่สมบูรณ์ไม่ใช่แค่ "รันแอปได้" แต่ต้องตอบได้ครบ 4 คำถาม — ทนต่อความล้มเหลวได้ไหม (topology), backup กู้คืนได้จริงไหม (Velero + etcd), มองเห็นปัญหาก่อนลูกค้ารู้ไหม (monitoring), และป้องกันการโจมตีได้ไหม (hardening + WAF) — เหมือนที่พูดไว้ตั้งแต่บทที่ 1</p>
+
+<h3>มุมที่ 1 — โครงสร้างเครื่องทั้งคลัสเตอร์</h3>
+
+<figure class="diagram">
+<div class="flow-row" data-reveal="fade-up">
+  <div class="node hl"><div class="ic">🖥️</div><h5>Control-plane ×3</h5><p>stacked etcd, HA quorum</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">🌐</div><h5>Calico CNI</h5><p>Pod network ทุกโหนดคุยกันได้</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">🔌</div><h5>MetalLB</h5><p>แจก IP ให้ Service type LoadBalancer</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">📦</div><h5>Worker Nodes</h5><p>รัน Pod ของ Next.js app จริง</p></div>
+</div>
+<figcaption>โครงเครื่องขั้นต่ำของคลัสเตอร์นี้: control-plane 3 เครื่อง (บทที่ 3-5) + worker กี่เครื่องก็ได้ตาม load จริง (scale ด้วย HPA จากบทที่ 7)</figcaption>
+</figure>
+
+<h3>มุมที่ 2 — เส้นทางของ request หนึ่งตัว ตั้งแต่ลูกค้ายิงเข้ามาจนถึง Pod</h3>
+
+<figure class="diagram">
+<div class="flow-row" data-reveal="fade-up">
+  <div class="node"><div class="ic">🧑‍💻</div><h5>Client</h5><p>ยิง HTTPS เข้ามา</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node hl"><div class="ic">🛡️</div><h5>WAF / Ingress-NGINX</h5><p>TLS + ModSecurity CRS + rate-limit (บทที่ 13)</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">🔌</div><h5>Service</h5><p>load balance ไปยัง Pod ที่ ready (บทที่ 6-7)</p></div>
+  <svg class="doodle-arrow" viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><path class="doodle-draw" d="M3,20 C15,8 25,32 33,18 C38,10 44,22 50,18"/><path class="doodle-draw" d="M44,10 L52,18 L43,24"/></svg>
+  <div class="node"><div class="ic">📦</div><h5>Pod (Next.js)</h5><p>ภายใต้ RBAC/PSS/NetworkPolicy (บทที่ 12)</p></div>
+</div>
+<figcaption>ทุก request ต้องผ่าน WAF ก่อนเสมอ — ไม่มี Service ไหน expose ตรงออกอินเทอร์เน็ต และ Pod ที่รับ traffic ต้องผ่าน readinessProbe แล้วเท่านั้น</figcaption>
+</figure>
+
+<p>สองมุมนี้คือ "โครงสร้างนิ่ง" กับ "การไหลของ traffic" ส่วนที่มองไม่เห็นในไดอะแกรมแต่ทำงานอยู่ตลอดเวลาคือสามระบบเสริมที่ครอบทั้งคลัสเตอร์อยู่ — Velero + etcd snapshot (บทที่ 9) คอย backup ทุกวันตี 3, kube-prometheus-stack + Loki (บทที่ 10) คอยเฝ้ามองและแจ้งเตือน, และ k6 + probe (บทที่ 11) คอยยืนยันก่อน deploy ทุกครั้งว่าของจริงรับ load ไหว</p>
+
+<div class="stat-row" data-reveal="fade-up">
+  <div class="stat"><div class="num counter" data-to="3">0</div><div class="lbl">Control-plane node ขั้นต่ำ (HA)</div></div>
+  <div class="stat"><div class="num counter" data-to="4">0</div><div class="lbl">มิติของ production-grade</div></div>
+  <div class="stat"><div class="num counter" data-to="13">0</div><div class="lbl">บทที่พาลงมือทำจริง</div></div>
+  <div class="stat"><div class="num counter" data-to="0">0</div><div class="lbl">single point of failure ที่เหลืออยู่</div></div>
+</div>
+
+<div class="doodle-card accent" data-reveal="fade-up">
+  <p class="callout-title">✅ Runbook checklist ก่อนเรียกว่า "พร้อม production" จริง</p>
+  <div class="grid2">
+    <ul style="margin-bottom:0">
+      <li>control-plane ≥3 เครื่อง, etcd quorum ผ่าน</li>
+      <li>CNI + MetalLB ให้ Service มี IP จริง ไม่ pending</li>
+      <li>Deployment มี resources + probe ครบ, HPA ทำงาน</li>
+      <li>Velero schedule รันอยู่ และเคยซ้อม restore แล้วจริง</li>
+      <li>etcd snapshot มี job รันอัตโนมัติ ไม่ใช่รันมือ</li>
+    </ul>
+    <ul style="margin-bottom:0">
+      <li>Prometheus scrape แอปติด, มี alert rule อย่างน้อย 1 ตัว</li>
+      <li>k6 load test ผ่านตัวเลข target ที่ทีมตกลงกันไว้</li>
+      <li>RBAC ไม่มีใครถือ cluster-admin โดยไม่จำเป็น</li>
+      <li>NetworkPolicy default-deny ใช้งานอยู่ทุก namespace</li>
+      <li>Ingress ทุกตัวมี TLS + WAF annotation เปิดอยู่</li>
+    </ul>
+  </div>
+</div>
+
+<p>ครบทุกข้อในนี้แล้ว — คลัสเตอร์ของสมชายไม่ใช่ "VM เดี่ยวที่บังเอิญไม่ล่มมา 8 เดือน" อีกต่อไป แต่เป็นระบบที่ทนต่อ node ตาย, กู้คืนได้จริง, มองเห็นปัญหาก่อนลูกค้าโทรมา และป้องกันการโจมตีจากภายนอกได้ — ครบทั้ง 4 มิติตามที่ตั้งเป้าไว้ตั้งแต่บทที่ 1 ที่เหลือคือเรื่องใช้งานประจำวัน ไปดู cheatsheet กันต่อ</p>
+</section>
+
+<section class="chapter" id="cheatsheet">
+<p class="ch-kicker">⚡ บทที่ 15</p>
+<h2>Cheatsheet ใช้งานจริง — คำสั่งที่หยิบใช้บ่อยที่สุดในแต่ละวัน</h2>
+<p class="lede">คลัสเตอร์ตั้งเสร็จแล้ว บทนี้คือลิสต์คำสั่ง <code>kubectl</code> และ day-2 operation ที่จะได้ใช้ซ้ำแทบทุกวัน เก็บไว้เปิดเวลาทำงานจริง ไม่ต้องไล่อ่านทั้งบทความใหม่ทุกครั้ง</p>
+
+<h3>ดูสถานะคลัสเตอร์</h3>
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ดู node ทั้งหมด สถานะ Ready/NotReady</span>
+kubectl get nodes -o wide
+
+<span class="tok-c"># ดู pod ทุก namespace</span>
+kubectl get pods -A
+
+<span class="tok-c"># ดูรายละเอียด event ล่าสุดของ resource ตัวหนึ่ง (debug อันดับแรกที่ควรทำ)</span>
+kubectl describe pod &lt;pod-name&gt; -n &lt;namespace&gt;
+
+<span class="tok-c"># ดู event ทั้ง namespace เรียงตามเวลา</span>
+kubectl get events -n &lt;namespace&gt; --sort-by=.lastTimestamp</code></pre>
+</div>
+
+<h3>ดู log และเข้าไปใน container</h3>
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># tail log แบบ real-time</span>
+kubectl logs -f &lt;pod-name&gt; -n &lt;namespace&gt;
+
+<span class="tok-c"># log ของ container ก่อนหน้าที่ crash ไปแล้ว (ดูสาเหตุ restart)</span>
+kubectl logs &lt;pod-name&gt; -n &lt;namespace&gt; --previous
+
+<span class="tok-c"># เข้าไป shell ข้างใน container เพื่อ debug</span>
+kubectl exec -it &lt;pod-name&gt; -n &lt;namespace&gt; -- sh</code></pre>
+</div>
+
+<h3>Deploy และ Rollback</h3>
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># อัปเดต image เวอร์ชันใหม่แบบ rolling update</span>
+kubectl set image deployment/nextjs-app nextjs-app=myregistry/nextjs-app:1.1.0
+
+<span class="tok-c"># ดูสถานะ rollout ว่าเสร็จหรือยัง</span>
+kubectl rollout status deployment/nextjs-app
+
+<span class="tok-c"># ย้อนกลับเวอร์ชันก่อนหน้าทันทีถ้า rollout ใหม่มีปัญหา</span>
+kubectl rollout undo deployment/nextjs-app
+
+<span class="tok-c"># ดูประวัติ revision ทั้งหมด</span>
+kubectl rollout history deployment/nextjs-app</code></pre>
+</div>
+
+<h3>Scale และ Resource</h3>
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># scale replicas ด้วยมือ (เผื่อ HPA ยังไม่ทัน)</span>
+kubectl scale deployment/nextjs-app --replicas=5
+
+<span class="tok-c"># ดูการใช้ CPU/memory จริงของแต่ละ pod (ต้องมี metrics-server)</span>
+kubectl top pods -n production
+
+<span class="tok-c"># ดูสถานะ HPA แบบ real-time</span>
+kubectl get hpa nextjs-app -w</code></pre>
+</div>
+
+<h3>ตรวจ backup / restore สถานะ</h3>
+<div class="code-block">
+  <div class="code-bar"><span class="dots"><span></span><span></span><span></span></span><span>terminal</span><button class="copy-btn">copy</button></div>
+  <pre><code><span class="tok-c"># ดู backup ทั้งหมดที่ Velero เคยสร้าง</span>
+velero backup get
+
+<span class="tok-c"># ดู schedule ที่ตั้งไว้ ยังรันอยู่ปกติไหม</span>
+velero schedule get
+
+<span class="tok-c"># เช็ค tigerastatus ของ Calico ว่า healthy ไหม</span>
+kubectl get tigerastatus</code></pre>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 คำสั่งที่ควรจำขึ้นใจที่สุด</p>
+  <p style="margin:0">ถ้าจำได้แค่คำสั่งเดียวตอนมีปัญหา ให้จำ <code>kubectl describe</code> — 90% ของปัญหา Kubernetes เริ่มต้นด้วยการอ่าน Events ท้าย output ของคำสั่งนี้ ก่อนจะไปไล่ดู log หรือเดาสาเหตุอื่น</p>
+</div>
+</section>
+
+<section class="chapter" id="summary">
+<p class="ch-kicker">🎬 บทที่ 16</p>
+<h2>สรุปบทเรียน — จากคลัสเตอร์ที่ล่มตอนตีสาม ถึงระบบที่ทนต่อความล้มเหลวได้จริง</h2>
+<p class="lede">ย้อนกลับไปบทที่ 1 สมชายมีแค่ VM เดียวที่บังเอิญไม่ล่มมา 8 เดือน มาถึงตรงนี้เขามีคลัสเตอร์ที่ผ่าน 4 มิติของ production-grade ครบแล้ว บทนี้สรุปบทเรียนสำคัญที่สุดจากแต่ละส่วน</p>
+
+<div class="card-grid" data-reveal="fade-up">
+  <div class="doodle-card">
+    <p class="callout-title">🏗️ Architecture</p>
+    <p style="margin:0">แยก control plane กับ node component ออกจากกันด้วยเหตุผล ไม่ใช่แค่ตามสอนกันมา — แต่ละตัวมี failure mode ต่างกัน</p>
+  </div>
+  <div class="doodle-card r2">
+    <p class="callout-title">🧭 Topology</p>
+    <p style="margin:0">HA ผูกกับ etcd quorum โดยตรง — ต้องมี 3 เครื่องขึ้นไปเสมอ ไม่มีทางลัดที่ 2 เครื่อง</p>
+  </div>
+  <div class="doodle-card r3">
+    <p class="callout-title">🖥️ VM Prep</p>
+    <p style="margin:0">containerd 1.x/2.x path ต่างกันเงียบๆ — เช็คเวอร์ชันก่อนแก้ config ทุกครั้ง</p>
+  </div>
+  <div class="doodle-card accent">
+    <p class="callout-title">🚀 Bootstrap</p>
+    <p style="margin:0">repo เก่า packages.cloud.google.com ตายแล้ว ใช้ pkgs.k8s.io เท่านั้น</p>
+  </div>
+  <div class="doodle-card">
+    <p class="callout-title">🌐 Networking</p>
+    <p style="margin:0">bare-metal ไม่มี cloud-controller-manager ให้พึ่ง — MetalLB คือตัวเติมช่องว่างนั้น</p>
+  </div>
+  <div class="doodle-card r2">
+    <p class="callout-title">📦 Deploy Next.js</p>
+    <p style="margin:0"><code>output: 'standalone'</code> + probe + resources ครบ คือพื้นฐานที่ทุก production Deployment ต้องมี</p>
+  </div>
+  <div class="doodle-card r3">
+    <p class="callout-title">🧰 Tooling</p>
+    <p style="margin:0">Helm สำหรับแจก chart, Kustomize สำหรับ manifest ของทีมเอง — ใช้ผสมกันได้</p>
+  </div>
+  <div class="doodle-card accent">
+    <p class="callout-title">🛟 Backup/DR</p>
+    <p style="margin:0"><span class="mark">backup ที่ไม่เคย restore ก็เหมือนไม่มี backup</span> — ซ้อมกู้คืนอย่างน้อยไตรมาสละครั้ง</p>
+  </div>
+  <div class="doodle-card">
+    <p class="callout-title">📡 Monitoring</p>
+    <p style="margin:0">คลัสเตอร์ต้อง "พูดได้" ก่อนลูกค้าจะเป็นคนบอกเราว่าระบบพัง</p>
+  </div>
+  <div class="doodle-card r2">
+    <p class="callout-title">🧪 Testing</p>
+    <p style="margin:0">CI เขียวไม่เท่ากับพร้อม production — ต้องมี load test, probe validation, conformance test ครบ</p>
+  </div>
+  <div class="doodle-card r3">
+    <p class="callout-title">🔒 Hardening</p>
+    <p style="margin:0">defense-in-depth หลายชั้น RBAC + PSS + NetworkPolicy — ปิดรูข้างในให้ครบก่อนมองข้างนอก</p>
+  </div>
+  <div class="doodle-card accent">
+    <p class="callout-title">🛡️ Proxy + WAF</p>
+    <p style="margin:0">infrastructure hardening ทั้งหมดคุมไม่ถึงเนื้อ HTTP request — WAF คือ layer ที่อ่าน L7 จริง</p>
+  </div>
+</div>
+
+<div class="speech">
+  <div class="who">🧑‍💻</div>
+  <div class="bubble"><span class="name">สมชาย</span>ย้อนกลับไปดูตอนตีสามคืนนั้น... ถ้าตอนนั้นผมมีทุกอย่างที่เพิ่งทำมา คงไม่ต้องตื่นมาแก้ปัญหาคนเดียวแบบนั้นเลยครับ</div>
+</div>
+<div class="speech right">
+  <div class="who">🧑‍🏫</div>
+  <div class="bubble"><span class="name">นาย ก.</span>นั่นแหละคือเป้าหมายจริงๆ ของ production-grade — ไม่ใช่ทำให้ระบบไม่มีวันพัง เพราะไม่มีระบบไหนไม่พังเลย แต่ทำให้ตอนที่มันพัง คุณมี backup กู้คืนได้ มี alert ที่บอกก่อนลูกค้าจะรู้ และมี node สำรองที่รับงานต่อได้ทันที — พังได้ แต่ล้มไม่ได้</div>
+</div>
+
+<p><strong>กล่าวสั้นๆ คือ</strong> production-grade Kubernetes ไม่ใช่ปลายทางที่ทำครั้งเดียวจบ แต่เป็นชุดพฤติกรรมที่ต้องทำซ้ำสม่ำเสมอ — ซ้อม restore ทุกไตรมาส, รีวิว RBAC ทุกครั้งที่มีคนใหม่เข้าทีม, อัปเดตเวอร์ชัน CNI/MetalLB/Calico ตามรอบ, และอ่าน alert ที่ยิงเข้ามาจริงจัง ไม่ใช่แค่ตั้งไว้แล้วลืม</p>
+</section>
+
+<section class="chapter" id="references">
+<p class="ch-kicker">📚 บทที่ 17</p>
+<h2>อ้างอิง</h2>
+<p class="lede">ทุกคำสั่ง/YAML ในบทความนี้ค้นและอ้างอิงจาก docs ทางการของแต่ละโปรเจกต์ ณ วันที่เขียนบทความ (กรกฎาคม 2026) — ลิงก์ทั้งหมดด้านล่างคือแหล่งที่ใช้จริง ไม่ใช่ลิงก์ทั่วไป</p>
+
+<h3>Kubernetes core</h3>
+<ul>
+  <li><a href="https://kubernetes.io/docs/concepts/overview/components/" target="_blank" rel="noopener">Kubernetes Components</a></li>
+  <li><a href="https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/ha-topology/" target="_blank" rel="noopener">Options for Highly Available Topology</a></li>
+  <li><a href="https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/" target="_blank" rel="noopener">Installing kubeadm</a></li>
+  <li><a href="https://kubernetes.io/docs/setup/production-environment/container-runtimes/" target="_blank" rel="noopener">Container Runtimes</a></li>
+  <li><a href="https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/" target="_blank" rel="noopener">Creating a cluster with kubeadm</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/services-networking/service/" target="_blank" rel="noopener">Service</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/" target="_blank" rel="noopener">Deployment</a></li>
+  <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/" target="_blank" rel="noopener">Liveness, Readiness, Startup Probes</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/services-networking/ingress/" target="_blank" rel="noopener">Ingress</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/configuration/configmap/" target="_blank" rel="noopener">ConfigMap</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/configuration/secret/" target="_blank" rel="noopener">Secret</a></li>
+  <li><a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/" target="_blank" rel="noopener">HorizontalPodAutoscaler Walkthrough</a></li>
+  <li><a href="https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/" target="_blank" rel="noopener">Declarative Management with Kustomize</a></li>
+  <li><a href="https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/" target="_blank" rel="noopener">Operating etcd clusters for Kubernetes</a></li>
+  <li><a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/" target="_blank" rel="noopener">RBAC Authorization</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/security/pod-security-standards/" target="_blank" rel="noopener">Pod Security Standards</a></li>
+  <li><a href="https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/" target="_blank" rel="noopener">Enforce Pod Security Standards with Namespace Labels</a></li>
+  <li><a href="https://kubernetes.io/docs/concepts/services-networking/network-policies/" target="_blank" rel="noopener">Network Policies</a></li>
+  <li><a href="https://kubectl.docs.kubernetes.io/guides/introduction/kustomize/" target="_blank" rel="noopener">Kustomize Introduction</a></li>
+  <li><a href="https://kubernetes.io/releases/" target="_blank" rel="noopener">Kubernetes Releases</a></li>
+</ul>
+
+<h3>Networking / CNI / Ingress</h3>
+<ul>
+  <li><a href="https://docs.tigera.io/calico/latest/getting-started/kubernetes/quickstart" target="_blank" rel="noopener">Calico Quickstart</a></li>
+  <li><a href="https://metallb.io/installation/" target="_blank" rel="noopener">MetalLB Installation</a></li>
+  <li><a href="https://metallb.io/configuration/" target="_blank" rel="noopener">MetalLB Configuration</a></li>
+  <li><a href="https://kubernetes.github.io/ingress-nginx/deploy/" target="_blank" rel="noopener">Ingress-NGINX Installation Guide</a></li>
+  <li><a href="https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/" target="_blank" rel="noopener">Ingress-NGINX Annotations (ModSecurity, Rate Limiting)</a></li>
+  <li><a href="https://cert-manager.io/docs/installation/helm/" target="_blank" rel="noopener">cert-manager Helm Installation</a></li>
+  <li><a href="https://cert-manager.io/docs/tutorials/acme/nginx-ingress/" target="_blank" rel="noopener">cert-manager + NGINX Ingress ACME Tutorial</a></li>
+</ul>
+
+<h3>App deploy / Tooling</h3>
+<ul>
+  <li><a href="https://nextjs.org/docs/app/api-reference/config/next-config-js/output" target="_blank" rel="noopener">Next.js output: 'standalone'</a></li>
+  <li><a href="https://nextjs.org/docs/app/getting-started/deploying" target="_blank" rel="noopener">Next.js Deploying</a></li>
+  <li><a href="https://github.com/vercel/next.js/tree/canary/examples/with-docker" target="_blank" rel="noopener">Next.js with-docker Example</a></li>
+  <li><a href="https://helm.sh/docs/intro/quickstart/" target="_blank" rel="noopener">Helm Quickstart</a></li>
+  <li><a href="https://helm.sh/docs/topics/charts/" target="_blank" rel="noopener">Helm Charts</a></li>
+</ul>
+
+<h3>Backup, Monitoring, Testing</h3>
+<ul>
+  <li><a href="https://velero.io/docs/main/backup-reference/" target="_blank" rel="noopener">Velero Backup Reference</a></li>
+  <li><a href="https://velero.io/docs/main/restore-reference/" target="_blank" rel="noopener">Velero Restore Reference</a></li>
+  <li><a href="https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack" target="_blank" rel="noopener">kube-prometheus-stack Helm Chart</a></li>
+  <li><a href="https://prometheus-operator.dev/docs/developer/getting-started/" target="_blank" rel="noopener">Prometheus Operator Getting Started</a></li>
+  <li><a href="https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/" target="_blank" rel="noopener">Prometheus Alerting Rules</a></li>
+  <li><a href="https://grafana.com/docs/loki/latest/setup/install/helm/install-monolithic/" target="_blank" rel="noopener">Loki Helm Install (Monolithic)</a></li>
+  <li><a href="https://grafana.com/docs/k6/latest/get-started/running-k6/" target="_blank" rel="noopener">Running k6</a></li>
+</ul>
+
+<h3>Hardening</h3>
+<ul>
+  <li><a href="https://github.com/aquasecurity/kube-bench" target="_blank" rel="noopener">kube-bench</a></li>
+  <li><a href="https://github.com/aquasecurity/trivy" target="_blank" rel="noopener">Trivy</a></li>
+</ul>
+
+<h3>เครดิต design/animation</h3>
+<p>ธีมภาพวาดมือ (doodle) และเทคนิค animation ดัดแปลงจาก <a href="https://github.com/Pratchaya0/html-ppt" target="_blank" rel="noopener">github.com/Pratchaya0/html-ppt</a> (MIT License) — บทความนี้เขียนโดยใช้ skill <code>thai-doodle-article</code> ที่สกัดรูปแบบการเขียน/ธีมนี้ออกมาจากบทความต้นแบบเรื่อง SSD-Agent-Skills</p>
+</section>
+
+<section class="chapter" id="extras">
+<p class="ch-kicker">🎁 บทที่ 18</p>
+<h2>แถม: เครื่องมือ CNCF ที่ควรรู้จักต่อจากที่นี่</h2>
+<p class="lede">บทความนี้ครอบคลุมชุดเครื่องมือหลักของ production Kubernetes แล้ว แต่ ecosystem ยังมีเครื่องมืออีกหลายตัวที่ทีมที่โตขึ้นมักหันไปใช้ต่อ — เลือกมา 4 ตัวที่พบบ่อยที่สุด แต่ละใบเช็คข้อมูลจริงจากเว็บ/docs ของโปรเจกต์นั้นๆ</p>
+
+<div class="card-grid" data-reveal="fade-up">
+  <div class="flashcard">
+    <div class="fc-top">
+      <div class="fc-avatar">🐝</div>
+      <div><p class="fc-name">Cilium</p><p class="fc-handle">cilium.io</p></div>
+    </div>
+    <p class="fc-desc">CNI ทางเลือกที่ใช้ eBPF แทน iptables ทำ networking, observability และ security ในชั้นเดียว — เหมาะกับทีมที่ Calico เริ่มไม่พอ (ต้องการ Hubble observability หรือ network policy ระดับ L7)</p>
+    <div class="fc-tags"><span class="tag">CNI</span><span class="tag">eBPF</span><span class="tag">Observability</span></div>
+    <div class="fc-install">cilium install --version 1.19.5</div>
+    <a class="fc-link" href="https://cilium.io" target="_blank" rel="noopener">cilium.io →</a>
+  </div>
+
+  <div class="flashcard">
+    <div class="fc-top">
+      <div class="fc-avatar">🔄</div>
+      <div><p class="fc-name">Argo CD</p><p class="fc-handle">argo-cd.readthedocs.io</p></div>
+    </div>
+    <p class="fc-desc">declarative GitOps continuous delivery — เอา git repo เป็น source of truth แล้ว sync สถานะคลัสเตอร์ให้ตรงกันอัตโนมัติ ต่อยอดจาก Helm/Kustomize ที่เรียนไปบทที่ 8 ได้ตรงๆ</p>
+    <div class="fc-tags"><span class="tag">GitOps</span><span class="tag">CD</span></div>
+    <div class="fc-install">kubectl apply -n argocd -f .../install.yaml</div>
+    <a class="fc-link" href="https://argo-cd.readthedocs.io/en/stable/" target="_blank" rel="noopener">argo-cd.readthedocs.io →</a>
+  </div>
+
+  <div class="flashcard">
+    <div class="fc-top">
+      <div class="fc-avatar">⚖️</div>
+      <div><p class="fc-name">OPA Gatekeeper</p><p class="fc-handle">open-policy-agent.github.io/gatekeeper</p></div>
+    </div>
+    <p class="fc-desc">validating/mutating admission webhook ที่บังคับ policy แบบ CRD ผ่าน Open Policy Agent — ต่อยอดจาก RBAC/PSS ในบทที่ 12 ไปอีกขั้น เขียน policy custom เองได้ด้วยภาษา Rego</p>
+    <div class="fc-tags"><span class="tag">Policy</span><span class="tag">Admission Controller</span></div>
+    <div class="fc-install">kubectl apply -f .../gatekeeper.yaml</div>
+    <a class="fc-link" href="https://open-policy-agent.github.io/gatekeeper/website/docs/" target="_blank" rel="noopener">open-policy-agent.github.io/gatekeeper →</a>
+  </div>
+
+  <div class="flashcard">
+    <div class="fc-top">
+      <div class="fc-avatar">📜</div>
+      <div><p class="fc-name">Kyverno</p><p class="fc-handle">kyverno.io</p></div>
+    </div>
+    <p class="fc-desc">policy engine เหมือน Gatekeeper แต่เขียน policy เป็น YAML/CEL แทน Rego — ลดต้นทุนการเรียนรู้เพราะใช้ syntax แบบ K8s ปกติ เป็น CNCF Graduated Project ที่มีองค์กรใหญ่อย่าง Adidas, Bloomberg, LinkedIn ใช้จริงใน production</p>
+    <div class="fc-tags"><span class="tag">Policy</span><span class="tag">YAML-native</span></div>
+    <div class="fc-install">helm install kyverno kyverno/kyverno -n kyverno --create-namespace</div>
+    <a class="fc-link" href="https://kyverno.io" target="_blank" rel="noopener">kyverno.io →</a>
+  </div>
+</div>
+
+<div class="callout" data-reveal="fade-up">
+  <p class="callout-title">💡 ลำดับที่แนะนำให้เรียนต่อ</p>
+  <p style="margin:0">ถ้าคลัสเตอร์ของคุณอยู่ในจุดที่บทความนี้พาไปถึง (ครบ 4 มิติ production-grade แล้ว) ลำดับที่คุ้มค่าที่สุดในการต่อยอดคือ GitOps (Argo CD) ก่อน เพราะช่วยให้ deploy pipeline ทั้งหมดจากบทที่ 7-8 เป็น declarative และ auditable เต็มรูปแบบ จากนั้นค่อยพิจารณา policy engine (Kyverno มักเริ่มง่ายกว่า Gatekeeper สำหรับทีมที่ไม่คุ้น Rego) และ Cilium เป็นตัวสุดท้ายถ้า Calico เริ่มไม่พอสำหรับ observability ที่ต้องการ</p>
+</div>
+</section>
+
+
+  </article>
+
+  <nav class="toc-wrap">
+    <div class="toc">
+      <p class="toc-title">สารบัญ</p>
+      <ol>
+        <li><a href="#intro">ตี 3 คลัสเตอร์ล่ม</a></li>
+        <li><a href="#architecture">สถาปัตยกรรม K8s</a></li>
+        <li><a href="#topology">ออกแบบ HA Topology</a></li>
+        <li><a href="#vm-prep">เตรียมเครื่อง VM</a></li>
+        <li><a href="#bootstrap">Bootstrap ด้วย kubeadm</a></li>
+        <li><a href="#networking">Networking: Service/CoreDNS/MetalLB</a></li>
+        <li><a href="#deploy-nextjs">Deploy Next.js</a></li>
+        <li><a href="#tooling">Tool Managing: Helm/Kustomize</a></li>
+        <li><a href="#backup-dr">Backup &amp; DR</a></li>
+        <li><a href="#monitoring">Monitoring &amp; Observability</a></li>
+        <li><a href="#testing">Testing</a></li>
+        <li><a href="#hardening">Hardening</a></li>
+        <li><a href="#proxy-waf">Proxy + WAF</a></li>
+        <li><a href="#case-study">ประกอบร่างทั้งระบบ</a></li>
+        <li><a href="#cheatsheet">Cheatsheet</a></li>
+        <li><a href="#summary">สรุปบทเรียน</a></li>
+        <li><a href="#references">อ้างอิง</a></li>
+        <li><a href="#extras">แถม: เครื่องมือน่ารู้ต่อ</a></li>
+      </ol>
+    </div>
+  </nav>
+</div>
+
+<button class="toc-mobile-btn" aria-label="เปิดสารบัญ">☰</button>
+<div class="toc-drawer">
+  <div class="close-row"><button aria-label="ปิดสารบัญ">✕</button></div>
+  <p class="toc-title">สารบัญ</p>
+  <ol>
+    <li><a href="#intro">ตี 3 คลัสเตอร์ล่ม</a></li>
+    <li><a href="#architecture">สถาปัตยกรรม K8s</a></li>
+    <li><a href="#topology">ออกแบบ HA Topology</a></li>
+    <li><a href="#vm-prep">เตรียมเครื่อง VM</a></li>
+    <li><a href="#bootstrap">Bootstrap ด้วย kubeadm</a></li>
+    <li><a href="#networking">Networking: Service/CoreDNS/MetalLB</a></li>
+    <li><a href="#deploy-nextjs">Deploy Next.js</a></li>
+    <li><a href="#tooling">Tool Managing: Helm/Kustomize</a></li>
+    <li><a href="#backup-dr">Backup &amp; DR</a></li>
+    <li><a href="#monitoring">Monitoring &amp; Observability</a></li>
+    <li><a href="#testing">Testing</a></li>
+    <li><a href="#hardening">Hardening</a></li>
+    <li><a href="#proxy-waf">Proxy + WAF</a></li>
+    <li><a href="#case-study">ประกอบร่างทั้งระบบ</a></li>
+    <li><a href="#cheatsheet">Cheatsheet</a></li>
+    <li><a href="#summary">สรุปบทเรียน</a></li>
+    <li><a href="#references">อ้างอิง</a></li>
+    <li><a href="#extras">แถม: เครื่องมือน่ารู้ต่อ</a></li>
+  </ol>
+</div>
+
+<footer class="site-footer">
+  <p>เขียนโดย Claude · เนื้อหาอ้างอิงจาก docs ทางการของแต่ละโปรเจกต์ ณ วันที่ 2026-07-11</p>
+  <p>เทคนิค animation/doodle ดัดแปลงจาก <a href="https://github.com/Pratchaya0/html-ppt" target="_blank" rel="noopener">github.com/Pratchaya0/html-ppt</a> (MIT License)</p>
+</footer>
+
+<script src="assets/js/article.js"></script>
+</body>
+</html>
